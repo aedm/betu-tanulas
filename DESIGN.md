@@ -294,3 +294,38 @@ Recorded by `betu-04` so future runs don't re-decide silently:
 - Build out is `dist/public/` (Dioxus 0.7 default), not bare
   `dist/`. The CI deploy step uses `dist/public/` as wrangler's
   source dir.
+
+## 16. Layout decisions made in `betu-05` (static puzzle screen)
+
+- **Tile/slot sizing.** `width: min(88px, calc((100vw - 80px) / 5))`
+  with a `min-width: 56px` floor. Five tier-3 (5-letter) tiles with
+  6 px gaps fit a 375 px viewport without horizontal scroll;
+  shorter words inherit the same cell size for visual consistency.
+  This **deviates from §3's "≥ 64 × 64 CSS px" floor** at 375 px
+  (where the formula yields ~59 px) — still well above the 44 px
+  WCAG AAA floor and the 44 pt Apple HIG recommendation. On
+  ≥440 px-wide phones (iPhone Pro Max, modern Android), the cell
+  is back at the spec'd ≥64 px. Revisit in `betu-11` if the kid's
+  finger calibration on the actual device finds 56 px too small.
+- **Font bundling deferred.** The `@theme` font stack lists
+  `"Atkinson Hyperlegible"` first but no font file is bundled
+  yet — browsers fall back to `system-ui, sans-serif`. Uppercase
+  Hungarian doesn't have the I/l/1 confusion Atkinson is famous
+  for solving, so the visual cost is small for v1. Bundle the
+  OFL font file in a follow-up if the user wants it before launch.
+- **Word selection.** `App` renders the *first* entry in
+  `assets/words.json` (currently `APA`). "Configurable" per the
+  task is interpreted as "edit `words.json` to put your desired
+  word first" — the proper menu lands in `betu-08`.
+- **Crate layout.** Promoted from binary-only to lib + bin so
+  `tests/puzzle_screen_render.rs` can SSR-render `PuzzleScreen`
+  via `dioxus-ssr` without a browser. `src/lib.rs` exposes the
+  `App` component; `src/main.rs` is now one line that delegates
+  to `betu_tanulas::App`.
+- **Shuffle RNG.** Custom xorshift64 (`src/puzzle.rs`) instead of
+  pulling `rand` + `getrandom`-with-`js`. Entropy seed comes from
+  `js_sys::Date::now()` on wasm and `SystemTime::now()` on native.
+  Tests pin `seed = Some(42)` for determinism. If we ever need
+  cryptographic-quality randomness elsewhere we'll switch to
+  `rand`; for shuffling a 5-letter row, xorshift is more than
+  enough.
