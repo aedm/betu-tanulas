@@ -116,4 +116,79 @@
     cursor: grabbing;
     box-shadow: 0 8px 20px rgba(31, 41, 55, 0.18);
   }
+
+  /* --- Win flow (betu-07) --- */
+
+  .betu-screen[data-won="true"] .betu-slot {
+    animation: betu-pulse 600ms ease-in-out 2;
+    border-color: var(--color-success);
+  }
+
+  @keyframes betu-pulse {
+    0% { transform: scale(1); }
+    50% {
+      transform: scale(1.06);
+      box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-success) 25%, transparent);
+    }
+    100% { transform: scale(1); }
+  }
+
+  .betu-emoji-rain {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  .betu-rain-drop {
+    position: absolute;
+    top: -10%;
+    left: calc(8% + (var(--i) * 9%));
+    font-size: clamp(28px, 7vw, 48px);
+    animation: betu-rain 1500ms ease-in calc(var(--i) * 80ms) forwards;
+  }
+
+  @keyframes betu-rain {
+    0%   { transform: translateY(0)     rotate(0deg);   opacity: 1; }
+    100% { transform: translateY(120vh) rotate(360deg); opacity: 0; }
+  }
+
+  .betu-next {
+    position: absolute;
+    bottom: clamp(16px, 5vh, 48px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 96px;
+    height: 96px;
+    min-width: 64px;
+    min-height: 64px;
+    border-radius: 9999px;
+    background: var(--color-success);
+    border: none;
+    color: white;
+    font-size: 44px;
+    line-height: 1;
+    box-shadow: 0 6px 18px rgba(31, 41, 55, 0.22);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    /* Materialize after the pulse + confetti settle (~800 ms). */
+    opacity: 0;
+    pointer-events: none;
+    animation: betu-next-fadein 350ms ease-out 800ms forwards;
+  }
+
+  .betu-next:active {
+    transform: translateX(-50%) scale(0.96);
+  }
+
+  @keyframes betu-next-fadein {
+    0%   { opacity: 0; pointer-events: none; }
+    100% { opacity: 1; pointer-events: auto; }
+  }
+
+  .betu-screen {
+    position: relative;
+  }
 }

@@ -1,51 +1,64 @@
 use dioxus::prelude::*;
 
-use crate::puzzle::{Puzzle, TileState};
-use crate::word::Word;
+use crate::game::Game;
+use crate::progress;
+use crate::puzzle::TileState;
 
 const SNAP_RADIUS_PX: f64 = 40.0;
 
 #[component]
-pub fn PuzzleScreen(word: Word) -> Element {
-    let initial = Puzzle::new(word.clone(), None);
-    let mut puzzle = use_signal(|| initial);
-
-    let p = puzzle.read();
+pub fn PuzzleScreen(game: Signal<Game>) -> Element {
+    let g = game.read();
+    let p = &g.current_puzzle;
     let dragging_idx = p.dragging_tile();
+    let won = g.is_won();
+    let word = p.word.word.clone();
+    let emoji = p.word.emoji.clone();
 
     rsx! {
         section {
             class: "betu-screen",
-            "data-word": "{p.word.word}",
+            "data-word": "{word}",
             "data-dragging": if dragging_idx.is_some() { "true" } else { "false" },
+            "data-won": if won { "true" } else { "false" },
             onpointermove: move |evt| {
-                if puzzle.read().dragging_tile().is_none() {
+                if won {
+                    return;
+                }
+                if game.read().current_puzzle.dragging_tile().is_none() {
                     return;
                 }
                 let coords = evt.client_coordinates();
-                puzzle.write().pointer_move(evt.pointer_id(), (coords.x, coords.y));
+                game.write()
+                    .current_puzzle
+                    .pointer_move(evt.pointer_id(), (coords.x, coords.y));
             },
             onpointerup: move |evt| {
-                if puzzle.read().dragging_tile().is_none() {
+                if won {
+                    return;
+                }
+                if game.read().current_puzzle.dragging_tile().is_none() {
                     return;
                 }
                 let coords = evt.client_coordinates();
                 let pid = evt.pointer_id();
                 {
-                    let mut w = puzzle.write();
-                    w.pointer_move(pid, (coords.x, coords.y));
+                    let mut w = game.write();
+                    w.current_puzzle.pointer_move(pid, (coords.x, coords.y));
                 }
                 let centers = measure_slot_centers();
-                puzzle.write().release(pid, &centers, SNAP_RADIUS_PX);
+                game.write()
+                    .current_puzzle
+                    .release(pid, &centers, SNAP_RADIUS_PX);
             },
             onpointercancel: move |evt| {
-                puzzle.write().cancel(evt.pointer_id());
+                game.write().current_puzzle.cancel(evt.pointer_id());
             },
             div {
                 class: "betu-emoji",
                 role: "img",
-                aria_label: "{p.word.word}",
-                "{p.word.emoji}"
+                aria_label: "{word}",
+                "{emoji}"
             }
             div {
                 class: "betu-row betu-slots",
@@ -102,8 +115,16 @@ pub fn PuzzleScreen(word: Word) -> Element {
                                 "data-dragging": if dragging { "true" } else { "false" },
                                 style: "{style}",
                                 onpointerdown: move |evt| {
+                                    if won {
+                                        return;
+                                    }
                                     if matches!(
-                                        puzzle.read().tiles.get(idx).map(|t| t.state),
+                                        game
+                                            .read()
+                                            .current_puzzle
+                                            .tiles
+                                            .get(idx)
+                                            .map(|t| t.state),
                                         Some(TileState::Placed { .. })
                                     ) {
                                         return;
@@ -113,8 +134,9 @@ pub fn PuzzleScreen(word: Word) -> Element {
                                     let origin_center =
                                         pickup_origin_center(&evt).unwrap_or(pointer);
                                     let pid = evt.pointer_id();
-                                    let picked = puzzle
+                                    let picked = game
                                         .write()
+                                        .current_puzzle
                                         .pickup(idx, pid, pointer, origin_center);
                                     if picked {
                                         capture_pointer_for_event(&evt, pid);
@@ -126,6 +148,41 @@ pub fn PuzzleScreen(word: Word) -> Element {
                     }
                 }
             }
+            if won {
+                WinOverlay { emoji: emoji.clone(), game }
+            }
+        }
+    }
+}
+
+#[component]
+fn WinOverlay(emoji: String, game: Signal<Game>) -> Element {
+    rsx! {
+        div {
+            class: "betu-emoji-rain",
+            aria_hidden: "true",
+            for i in 0..10 {
+                span {
+                    key: "rain-{i}",
+                    class: "betu-rain-drop",
+                    style: "--i: {i};",
+                    "{emoji}"
+                }
+            }
+        }
+        button {
+            class: "betu-next",
+            r#type: "button",
+            aria_label: "Következő",
+            "data-testid": "betu-next",
+            onclick: move |_| {
+                {
+                    let mut g = game.write();
+                    g.advance_to_next();
+                    progress::save(&g.progress);
+                }
+            },
+            "➡️"
         }
     }
 }
