@@ -265,12 +265,15 @@ None worth blocking on. All v1 decisions are reversible in code.
 
 ## 14. Deployment
 
-- **Production URL:** `https://betu-tanulas.pages.dev` (set on first
-  deploy; update this line after `betu-04` confirms it).
+- **Production URL:** <https://betu-tanulas.pages.dev> — first deploy
+  confirmed live 2026-05-09 (HTTP 200, serves Dioxus hello page).
 - **Project name:** `betu-tanulas` (Cloudflare Pages).
 - **Credentials:** minted via `aedm/cloudflare-deploy` workflow
   `mint-token.yml`, preset `pages-basic`. Re-running the workflow
   revokes prior tokens and is therefore safe.
+- **Project bootstrap caveat:** Wrangler 3.x's `pages deploy` does not
+  auto-create the project; CI runs `pages project create` first with
+  `continue-on-error: true` so re-deploys are idempotent.
 
 ## 15. Scaffold deviations from the original design plan
 
