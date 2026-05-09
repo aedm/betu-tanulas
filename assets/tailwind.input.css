@@ -40,6 +40,9 @@
     padding: clamp(12px, 4vw, 24px);
     align-items: center;
     justify-items: center;
+    /* Disable browser-handled gestures on the play surface so pointermove
+       fires reliably during drag (no scroll-hijack on iOS). */
+    touch-action: none;
   }
 
   .betu-emoji {
@@ -80,6 +83,7 @@
     background: var(--color-slot);
     border: 2px dashed #D1D5DB;
     color: var(--color-ink);
+    transition: border-color 150ms ease-out, background 150ms ease-out;
   }
 
   .betu-slot[data-filled="true"] {
@@ -88,15 +92,28 @@
     border-color: var(--color-success);
   }
 
+  .betu-slot[data-target="true"] {
+    border-color: var(--color-success);
+    background: color-mix(in oklab, var(--color-success) 10%, white);
+  }
+
   .betu-tile {
     background: #FFFFFF;
     border: 1px solid var(--color-tile-border);
     box-shadow: 0 1px 2px rgba(31, 41, 55, 0.08);
     color: var(--color-ink);
-    transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+    cursor: grab;
+    /* Spring-back animation when state flips from Dragging back to Idle —
+       the inline style strips the transform, this transition animates it. */
+    transition: transform 250ms ease-out, box-shadow 200ms ease-out;
   }
 
   .betu-tile[data-placed="true"] {
     visibility: hidden;
+  }
+
+  .betu-tile[data-dragging="true"] {
+    cursor: grabbing;
+    box-shadow: 0 8px 20px rgba(31, 41, 55, 0.18);
   }
 }

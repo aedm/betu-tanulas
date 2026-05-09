@@ -1,16 +1,44 @@
 use crate::word::Word;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Tile {
-    pub letter: char,
-    pub placed: bool,
+pub type Pos = (f64, f64);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TileState {
+    Idle,
+    Dragging {
+        pointer_id: i32,
+        pointer: Pos,
+        origin_center: Pos,
+    },
+    Placed {
+        slot_index: usize,
+    },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tile {
+    pub letter: char,
+    pub state: TileState,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Puzzle {
     pub word: Word,
-    pub slots: Vec<Option<char>>,
+    pub slots: Vec<Option<usize>>,
     pub tiles: Vec<Tile>,
+    pub wrong_drops: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DropOutcome {
+    Snapped {
+        tile_index: usize,
+        slot_index: usize,
+    },
+    SprungBack {
+        tile_index: usize,
+    },
+    Ignored,
 }
 
 impl Puzzle {
@@ -22,15 +50,143 @@ impl Puzzle {
             .into_iter()
             .map(|letter| Tile {
                 letter,
-                placed: false,
+                state: TileState::Idle,
             })
             .collect();
         Self {
             slots: vec![None; len],
             tiles,
             word,
+            wrong_drops: 0,
         }
     }
+
+    pub fn dragging_tile(&self) -> Option<usize> {
+        self.tiles
+            .iter()
+            .position(|t| matches!(t.state, TileState::Dragging { .. }))
+    }
+
+    fn dragging_with(&self, pointer_id: i32) -> Option<usize> {
+        self.tiles.iter().position(
+            |t| matches!(t.state, TileState::Dragging { pointer_id: pid, .. } if pid == pointer_id),
+        )
+    }
+
+    pub fn is_correct_target(&self, tile_index: usize, slot_index: usize) -> bool {
+        let Some(tile) = self.tiles.get(tile_index) else {
+            return false;
+        };
+        let Some(expected) = self.word.word.chars().nth(slot_index) else {
+            return false;
+        };
+        tile.letter == expected
+    }
+
+    pub fn is_complete(&self) -> bool {
+        !self.slots.is_empty() && self.slots.iter().all(|s| s.is_some())
+    }
+
+    pub fn pickup(
+        &mut self,
+        tile_index: usize,
+        pointer_id: i32,
+        pointer: Pos,
+        origin_center: Pos,
+    ) -> bool {
+        if self.dragging_tile().is_some() {
+            return false;
+        }
+        let Some(tile) = self.tiles.get_mut(tile_index) else {
+            return false;
+        };
+        if !matches!(tile.state, TileState::Idle) {
+            return false;
+        }
+        tile.state = TileState::Dragging {
+            pointer_id,
+            pointer,
+            origin_center,
+        };
+        true
+    }
+
+    pub fn pointer_move(&mut self, pointer_id: i32, pointer: Pos) -> bool {
+        let Some(idx) = self.dragging_with(pointer_id) else {
+            return false;
+        };
+        if let TileState::Dragging {
+            pointer: ref mut p, ..
+        } = self.tiles[idx].state
+        {
+            *p = pointer;
+            return true;
+        }
+        false
+    }
+
+    pub fn release(
+        &mut self,
+        pointer_id: i32,
+        slot_centers: &[Pos],
+        snap_radius: f64,
+    ) -> DropOutcome {
+        let Some(tile_index) = self.dragging_with(pointer_id) else {
+            return DropOutcome::Ignored;
+        };
+        let TileState::Dragging { pointer, .. } = self.tiles[tile_index].state else {
+            return DropOutcome::Ignored;
+        };
+
+        let nearest = nearest_slot_within(pointer, slot_centers, snap_radius);
+        let snap_target = nearest.and_then(|slot_index| {
+            if self.slots.get(slot_index).copied().flatten().is_some() {
+                None
+            } else if self.is_correct_target(tile_index, slot_index) {
+                Some(slot_index)
+            } else {
+                None
+            }
+        });
+
+        match snap_target {
+            Some(slot_index) => {
+                self.slots[slot_index] = Some(tile_index);
+                self.tiles[tile_index].state = TileState::Placed { slot_index };
+                DropOutcome::Snapped {
+                    tile_index,
+                    slot_index,
+                }
+            }
+            None => {
+                self.tiles[tile_index].state = TileState::Idle;
+                self.wrong_drops += 1;
+                DropOutcome::SprungBack { tile_index }
+            }
+        }
+    }
+
+    pub fn cancel(&mut self, pointer_id: i32) -> bool {
+        let Some(idx) = self.dragging_with(pointer_id) else {
+            return false;
+        };
+        self.tiles[idx].state = TileState::Idle;
+        true
+    }
+}
+
+fn nearest_slot_within(p: Pos, centers: &[Pos], radius: f64) -> Option<usize> {
+    let r2 = radius * radius;
+    let mut best: Option<(usize, f64)> = None;
+    for (i, c) in centers.iter().enumerate() {
+        let dx = p.0 - c.0;
+        let dy = p.1 - c.1;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= r2 && best.is_none_or(|(_, b)| d2 < b) {
+            best = Some((i, d2));
+        }
+    }
+    best.map(|(i, _)| i)
 }
 
 pub fn shuffle<T>(slice: &mut [T], seed: Option<u64>) {
@@ -93,13 +249,32 @@ mod tests {
         }
     }
 
+    fn alma() -> Puzzle {
+        Puzzle::new(sample("ALMA", 2), Some(42))
+    }
+
+    fn idx_of(p: &Puzzle, letter: char, nth: usize) -> usize {
+        p.tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.letter == letter)
+            .nth(nth)
+            .expect("letter occurrence not found in tiles")
+            .0
+    }
+
+    fn slot_centers_alma() -> Vec<Pos> {
+        (0..4).map(|i| (200.0 + i as f64 * 100.0, 300.0)).collect()
+    }
+
     #[test]
     fn new_creates_one_slot_and_one_tile_per_letter() {
         let p = Puzzle::new(sample("ALMA", 2), Some(42));
         assert_eq!(p.slots.len(), 4);
         assert_eq!(p.tiles.len(), 4);
         assert!(p.slots.iter().all(|s| s.is_none()));
-        assert!(p.tiles.iter().all(|t| !t.placed));
+        assert!(p.tiles.iter().all(|t| matches!(t.state, TileState::Idle)));
+        assert_eq!(p.wrong_drops, 0);
     }
 
     #[test]
@@ -110,6 +285,205 @@ mod tests {
         got.sort();
         want.sort();
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn pickup_marks_tile_dragging() {
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        assert!(p.pickup(l, 7, (10.0, 20.0), (50.0, 60.0)));
+        assert!(matches!(
+            p.tiles[l].state,
+            TileState::Dragging {
+                pointer_id: 7,
+                pointer: (10.0, 20.0),
+                origin_center: (50.0, 60.0),
+            }
+        ));
+        assert_eq!(p.dragging_tile(), Some(l));
+    }
+
+    #[test]
+    fn second_pointer_is_ignored_during_drag() {
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        let m = idx_of(&p, 'M', 0);
+        assert!(p.pickup(l, 1, (0.0, 0.0), (0.0, 0.0)));
+        // Different tile, different pointer — must be refused.
+        assert!(!p.pickup(m, 2, (0.0, 0.0), (0.0, 0.0)));
+        assert!(matches!(p.tiles[m].state, TileState::Idle));
+        // Same tile, different pointer — must also be refused.
+        assert!(!p.pickup(l, 2, (0.0, 0.0), (0.0, 0.0)));
+    }
+
+    #[test]
+    fn pointer_move_updates_only_the_active_drag() {
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        p.pickup(l, 7, (0.0, 0.0), (0.0, 0.0));
+        assert!(p.pointer_move(7, (123.0, 456.0)));
+        if let TileState::Dragging { pointer, .. } = p.tiles[l].state {
+            assert_eq!(pointer, (123.0, 456.0));
+        } else {
+            panic!("expected Dragging");
+        }
+        // Wrong pointer id — no update, no error.
+        assert!(!p.pointer_move(99, (1.0, 1.0)));
+        if let TileState::Dragging { pointer, .. } = p.tiles[l].state {
+            assert_eq!(pointer, (123.0, 456.0));
+        }
+    }
+
+    #[test]
+    fn release_on_correct_slot_snaps_and_locks() {
+        // ALMA: word position 0 = 'A'. Drop the first 'A' tile near slot 0.
+        let mut p = alma();
+        let a0 = idx_of(&p, 'A', 0);
+        p.pickup(a0, 1, (200.0, 300.0), (50.0, 600.0));
+        let centers = slot_centers_alma();
+        let outcome = p.release(1, &centers, 40.0);
+        assert_eq!(
+            outcome,
+            DropOutcome::Snapped {
+                tile_index: a0,
+                slot_index: 0,
+            }
+        );
+        assert_eq!(p.slots[0], Some(a0));
+        assert!(matches!(
+            p.tiles[a0].state,
+            TileState::Placed { slot_index: 0 }
+        ));
+        assert_eq!(p.wrong_drops, 0);
+    }
+
+    #[test]
+    fn release_on_wrong_slot_springs_back_and_counts() {
+        // ALMA position 1 = 'L'. Pick an 'A' tile, drop on slot 1 → wrong.
+        let mut p = alma();
+        let a0 = idx_of(&p, 'A', 0);
+        p.pickup(a0, 1, (300.0, 300.0), (50.0, 600.0));
+        let centers = slot_centers_alma();
+        let outcome = p.release(1, &centers, 40.0);
+        assert_eq!(outcome, DropOutcome::SprungBack { tile_index: a0 });
+        assert_eq!(p.slots[1], None);
+        assert!(matches!(p.tiles[a0].state, TileState::Idle));
+        assert_eq!(p.wrong_drops, 1);
+    }
+
+    #[test]
+    fn release_in_empty_space_springs_back_and_counts() {
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        p.pickup(l, 1, (10.0, 10.0), (0.0, 0.0));
+        let centers = slot_centers_alma();
+        let outcome = p.release(1, &centers, 40.0);
+        assert_eq!(outcome, DropOutcome::SprungBack { tile_index: l });
+        assert_eq!(p.wrong_drops, 1);
+        assert!(matches!(p.tiles[l].state, TileState::Idle));
+    }
+
+    #[test]
+    fn release_with_no_active_drag_is_ignored() {
+        let mut p = alma();
+        let centers = slot_centers_alma();
+        assert_eq!(p.release(1, &centers, 40.0), DropOutcome::Ignored);
+        assert_eq!(p.wrong_drops, 0);
+    }
+
+    #[test]
+    fn already_placed_tile_cannot_be_picked_up() {
+        let mut p = alma();
+        let a0 = idx_of(&p, 'A', 0);
+        p.pickup(a0, 1, (200.0, 300.0), (0.0, 0.0));
+        p.release(1, &slot_centers_alma(), 40.0);
+        assert!(matches!(
+            p.tiles[a0].state,
+            TileState::Placed { slot_index: 0 }
+        ));
+        // Try to pick it up again.
+        assert!(!p.pickup(a0, 2, (0.0, 0.0), (0.0, 0.0)));
+        assert!(matches!(
+            p.tiles[a0].state,
+            TileState::Placed { slot_index: 0 }
+        ));
+    }
+
+    #[test]
+    fn drop_on_filled_slot_springs_back() {
+        let mut p = alma();
+        // Place 'A' (first one) into slot 0.
+        let a0 = idx_of(&p, 'A', 0);
+        p.pickup(a0, 1, (200.0, 300.0), (0.0, 0.0));
+        p.release(1, &slot_centers_alma(), 40.0);
+        // Try to drop the second 'A' onto slot 0 (already filled). Slot 3 is
+        // also 'A' and empty — but the drop is targeted at slot 0's center.
+        let a1 = idx_of(&p, 'A', 1);
+        p.pickup(a1, 2, (200.0, 300.0), (0.0, 0.0));
+        let outcome = p.release(2, &slot_centers_alma(), 40.0);
+        assert_eq!(outcome, DropOutcome::SprungBack { tile_index: a1 });
+        assert_eq!(p.slots[0], Some(a0));
+        assert_eq!(p.wrong_drops, 1);
+    }
+
+    #[test]
+    fn cancel_returns_to_idle_without_counting_wrong_drop() {
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        p.pickup(l, 1, (0.0, 0.0), (0.0, 0.0));
+        assert!(p.cancel(1));
+        assert!(matches!(p.tiles[l].state, TileState::Idle));
+        assert_eq!(p.wrong_drops, 0);
+        // Cancel with no active drag is a no-op, returns false.
+        assert!(!p.cancel(1));
+    }
+
+    #[test]
+    fn snap_radius_is_inclusive_at_boundary() {
+        // Exactly at radius — should snap.
+        let mut p = alma();
+        let a0 = idx_of(&p, 'A', 0);
+        p.pickup(a0, 1, (240.0, 300.0), (0.0, 0.0)); // slot 0 center is (200,300)
+        let outcome = p.release(1, &slot_centers_alma(), 40.0);
+        assert!(matches!(outcome, DropOutcome::Snapped { .. }));
+    }
+
+    #[test]
+    fn just_outside_snap_radius_springs_back() {
+        let mut p = alma();
+        let a0 = idx_of(&p, 'A', 0);
+        // 41 px away from any slot — outside radius.
+        p.pickup(a0, 1, (241.0, 300.0), (0.0, 0.0));
+        let outcome = p.release(1, &slot_centers_alma(), 40.0);
+        assert!(matches!(outcome, DropOutcome::SprungBack { .. }));
+    }
+
+    #[test]
+    fn is_complete_true_only_when_all_slots_filled() {
+        let mut p = Puzzle::new(sample("MA", 1), Some(42));
+        assert!(!p.is_complete());
+        let m = idx_of(&p, 'M', 0);
+        let a = idx_of(&p, 'A', 0);
+        // slot centers for "MA": index 0 is 'M', index 1 is 'A'.
+        let centers = vec![(0.0, 0.0), (100.0, 0.0)];
+        p.pickup(m, 1, (0.0, 0.0), (0.0, 0.0));
+        assert_eq!(
+            p.release(1, &centers, 10.0),
+            DropOutcome::Snapped {
+                tile_index: m,
+                slot_index: 0
+            }
+        );
+        assert!(!p.is_complete());
+        p.pickup(a, 2, (100.0, 0.0), (0.0, 0.0));
+        assert_eq!(
+            p.release(2, &centers, 10.0),
+            DropOutcome::Snapped {
+                tile_index: a,
+                slot_index: 1
+            }
+        );
+        assert!(p.is_complete());
     }
 
     #[test]

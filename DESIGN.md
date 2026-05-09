@@ -329,3 +329,65 @@ Recorded by `betu-04` so future runs don't re-decide silently:
   cryptographic-quality randomness elsewhere we'll switch to
   `rand`; for shuffling a 5-letter row, xorshift is more than
   enough.
+
+## 17. Drag mechanics implementation (`betu-06`)
+
+- **State machine.** `Puzzle` owns `tiles: Vec<Tile>` and
+  `slots: Vec<Option<usize>>` (slot index → tile index when
+  filled). Each `Tile` has a `TileState` of `Idle`,
+  `Dragging { pointer_id, pointer, origin_center }`, or
+  `Placed { slot_index }`. The state transitions live as plain
+  methods on `Puzzle` — `pickup`, `pointer_move`, `release`,
+  `cancel` — so they're testable in pure Rust without any DOM.
+  The `tests/drag_state_integration.rs` integration test drives
+  the same call sequence the pointer-event handlers issue,
+  exercising win conditions and wrong-drop accounting end-to-end.
+- **Snap rule.** On `release`, the nearest empty slot whose
+  center is within `SNAP_RADIUS_PX = 40` is the snap target; if
+  the dragged tile's letter equals `word[slot_index]` the tile
+  locks (`Placed`). Otherwise — closest slot already filled,
+  letter mismatch, or no slot within radius — the tile springs
+  back to `Idle` and `wrong_drops` increments. This counts both
+  "wrong slot" and "empty space" drops as wrong drops, as the
+  spec requires. (Because v1 has no stars, `wrong_drops` has no
+  UX consequence yet — it's bookkeeping for `betu-07`.)
+- **Multi-touch lock.** `pickup` refuses while any tile is in
+  `Dragging`. `pointer_move` and `release` only act on the tile
+  matching the supplied `pointer_id`. A second finger landing
+  during a drag is silently ignored.
+- **Pointer event wiring.** The screen container holds
+  `onpointermove` / `onpointerup` / `onpointercancel`; each tile
+  holds `onpointerdown`. We additionally call
+  `setPointerCapture(pointer_id)` on the tile's `Element` at
+  pickup so the events follow the finger even if it leaves the
+  tile mid-drag. `touch-action: none` on the screen disables
+  browser-handled gestures so move events fire reliably on iOS
+  Safari (no scroll-hijacking on the play surface).
+- **Visual transform.** The dragged tile gets an inline
+  `transform: translate(dx, dy)` where
+  `(dx, dy) = pointer − origin_center` (origin_center is the
+  tile's center at pickup, measured via
+  `getBoundingClientRect()`). `transition: none` keeps the tile
+  glued to the finger while dragging; on release, the inline
+  style strips, and the base `.betu-tile` rule's
+  `transition: transform 250ms ease-out` provides the spring-back.
+  `data-dragging="true"` adds a softly elevated shadow.
+- **Slot affordance.** While a drag is live, every empty slot
+  whose expected letter matches the dragged tile's letter gets
+  `data-target="true"`; the CSS paints a soft success-tinted
+  border. Default ON for v1 (research §1) — flip the
+  `target_for_drag` predicate to `false` to disable if the
+  hint feels too generous on the kid.
+- **Slot-center measurement.** At release time we run
+  `document.querySelectorAll(".betu-slot")`, read each
+  `getBoundingClientRect()` center, and key the resulting array
+  by the `data-slot-index` attribute so misordered DOM nodes
+  can't desync the array from the model. This avoids the
+  ref-tracking dance Dioxus would otherwise need.
+- **Real-device verification deferred.** The state machine and
+  Tailwind visuals are exercised by 28 in-process tests
+  (puzzle unit + SSR + drag integration) plus a desktop browser
+  via `dx serve`. Touch-device verification on real iOS / Android
+  hardware is the explicit job of `betu-11-real-device-polish.md`
+  per the parent plan; this run does *not* claim hardware
+  verification.

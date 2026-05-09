@@ -4,7 +4,7 @@ pub mod word;
 
 use dioxus::prelude::*;
 
-pub use puzzle::{Puzzle, Tile, shuffle};
+pub use puzzle::{DropOutcome, Puzzle, Tile, TileState, shuffle};
 pub use puzzle_screen::PuzzleScreen;
 pub use word::{Word, load_words};
 
