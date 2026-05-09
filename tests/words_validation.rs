@@ -16,8 +16,8 @@ const ALLOWED: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const DIGRAPHS: &[&str] = &["DZS", "CS", "DZ", "GY", "LY", "NY", "SZ", "TY", "ZS"];
 
 fn load() -> Vec<Entry> {
-    let raw = fs::read_to_string("assets/words.json")
-        .expect("assets/words.json must exist at repo root");
+    let raw =
+        fs::read_to_string("assets/words.json").expect("assets/words.json must exist at repo root");
     serde_json::from_str(&raw).expect("assets/words.json must be valid JSON")
 }
 
