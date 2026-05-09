@@ -8,5 +8,95 @@
   --color-slot: #F3F4F6;
   --color-success: #34D399;
   --color-warn: #F59E0B;
+  --color-tile-border: #E5E7EB;
   --font-hyper: "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+
+@layer base {
+  html, body {
+    background: var(--color-bone);
+    color: var(--color-ink);
+    font-family: var(--font-hyper);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    overscroll-behavior: contain;
+  }
+}
+
+@layer components {
+  .betu-app {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .betu-screen {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-rows: 1fr auto auto;
+    row-gap: clamp(16px, 4vh, 32px);
+    padding: clamp(12px, 4vw, 24px);
+    align-items: center;
+    justify-items: center;
+  }
+
+  .betu-emoji {
+    font-size: clamp(96px, 30vh, 240px);
+    line-height: 1;
+    text-align: center;
+    user-select: none;
+  }
+
+  .betu-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: clamp(6px, 2.5vw, 16px);
+    width: 100%;
+    max-width: 720px;
+  }
+
+  .betu-cell {
+    /* Sized to fit five 5-letter tiles within a 375 px viewport without
+       horizontal scroll, while capping at a generous 88 px on tablets. */
+    width: min(88px, calc((100vw - 80px) / 5));
+    height: min(88px, calc((100vw - 80px) / 5));
+    min-width: 56px;
+    min-height: 56px;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(28px, 7vw, 44px);
+    font-weight: 700;
+    user-select: none;
+    flex: 0 0 auto;
+  }
+
+  .betu-slot {
+    background: var(--color-slot);
+    border: 2px dashed #D1D5DB;
+    color: var(--color-ink);
+  }
+
+  .betu-slot[data-filled="true"] {
+    background: color-mix(in oklab, var(--color-success) 18%, white);
+    border-style: solid;
+    border-color: var(--color-success);
+  }
+
+  .betu-tile {
+    background: #FFFFFF;
+    border: 1px solid var(--color-tile-border);
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.08);
+    color: var(--color-ink);
+    transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+  }
+
+  .betu-tile[data-placed="true"] {
+    visibility: hidden;
+  }
 }
