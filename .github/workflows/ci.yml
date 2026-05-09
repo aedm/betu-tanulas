@@ -182,6 +182,19 @@ jobs:
           name: dist
           path: dist/public
 
+      # Wrangler 3.x `pages deploy` does not auto-create the project,
+      # so we ensure it exists first. `continue-on-error: true` makes
+      # this idempotent: the call fails harmlessly if the project is
+      # already there, and any auth/scope issues will resurface in the
+      # subsequent deploy step.
+      - name: Ensure Pages project exists
+        uses: cloudflare/wrangler-action@v3.14.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create betu-tanulas --production-branch main
+        continue-on-error: true
+
       - name: Deploy to Pages
         uses: cloudflare/wrangler-action@v3.14.0
         with:
