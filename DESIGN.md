@@ -391,3 +391,88 @@ Recorded by `betu-04` so future runs don't re-decide silently:
   hardware is the explicit job of `betu-11-real-device-polish.md`
   per the parent plan; this run does *not* claim hardware
   verification.
+
+## 18. Win flow + progression (`betu-07`)
+
+- **`Game` struct** in `src/game.rs` is the new top-level model:
+  it owns the dictionary (`Vec<Word>`), the persisted `Progress`,
+  the `current_tier`, a shuffled `queue: Vec<Word>` of upcoming
+  tier words, and the active `Puzzle`. The puzzle screen reads &
+  mutates `Game` via a single `Signal<Game>` rooted in `App` —
+  per §12 "single root `AppState` Dioxus signal owns everything".
+- **Win detection** is `Game::is_won() = current_puzzle.is_complete()`.
+  The PuzzleScreen renders `data-won="true"` on `.betu-screen`,
+  which switches in the win-flow visuals via pure CSS (no JS
+  timers).
+- **Win-flow visuals** (CSS only, in `assets/tailwind.input.css`):
+  - 0–600 ms × 2: every slot pulses softly with a green halo
+    (`@keyframes betu-pulse` + `animation: 600ms ease-in-out 2`).
+    The completed word is readable in solved form throughout.
+  - 0–1500 ms: 10 emoji "raindrops" fall from the top of the
+    screen, staggered 80 ms apart (`@keyframes betu-rain` on
+    `.betu-rain-drop` with `--i` index per drop). The drop emoji
+    is the word's own emoji — "the emoji is the celebration" (§6).
+  - 800 ms onward: a large round Next button (`➡️`) fades in at
+    the bottom-center (`@keyframes betu-next-fadein` runs
+    *after* the pulse + most of the rain, so the button
+    materializes once the celebration has settled). It is
+    `pointer-events: none` until the fade-in completes, so an
+    eager finger can't dismiss the celebration prematurely.
+- **Manual tap to continue.** No auto-advance — research §3
+  flagged auto-advance as feeling rushed; the kid taps Next when
+  ready. `betu-11` may revisit if the kid's pattern says
+  otherwise.
+- **Tile pickup is gated on `won`.** While in the win state,
+  `onpointerdown` / `onpointermove` / `onpointerup` early-return
+  so already-placed tiles can't accidentally re-trigger drag
+  state.
+- **`advance_to_next` semantics** (`Game::advance_to_next`):
+  1. If `is_won()`, record the current word into
+     `progress.completed` (deduped) and recompute
+     `progress.tier_unlocked` against the dictionary.
+  2. If `queue` is empty, rebuild it from the tier's full word
+     list and shuffle (Fisher–Yates with `XorShift64`). This
+     gives §8's "free play within a tier — not repeated until
+     all words have been seen".
+  3. Pop the next word and build a fresh `Puzzle` for it. The
+     active `current_puzzle` is replaced; tile state resets to
+     all-`Idle`.
+  4. Persist via `progress::save(&progress)` — wasm hits
+     `localStorage["betu/progress/v1"]`, native is a no-op.
+- **Persistence schema** (`src/progress.rs`):
+  ```json
+  {
+    "completed": ["CICA", "ALMA"],
+    "currentTier": 1,
+    "tierUnlocked": 2
+  }
+  ```
+  Serde uses `#[serde(rename = "currentTier" / "tierUnlocked")]`
+  to match the camelCase already documented in §5. Unknown /
+  malformed JSON → `Progress::default()` (kid restarts from
+  scratch — fail-soft, no flash of an error screen).
+  `Game::new` clamps `current_tier` into `[1, tier_unlocked]`
+  defensively.
+- **Tier unlock rule.** `Progress::recompute_tier_unlock(&words)`
+  walks every tier `N` in the dictionary; if `>= N_UNLOCK = 5`
+  words from tier `N` appear in `completed`, set
+  `tier_unlocked = max(tier_unlocked, N + 1)`. Monotonic — never
+  re-locks. This is §5's rule promoted into a tested function.
+  N_UNLOCK is a guess per §11(3); revisit during `betu-11`.
+- **Tier change from menus deferred** to `betu-08`. For now the
+  kid plays in `progress.current_tier` and stays there;
+  `advance_to_next` does not auto-jump into a newly-unlocked
+  tier. The unlock notification UX lives in `betu-08`'s home
+  screen, not here.
+- **Tests.** `src/progress.rs` (7 unit tests on JSON round-trip,
+  dedup, unlock rule, monotonicity, malformed-JSON fallback);
+  `src/game.rs` (10 unit tests on tier clamping, win transition,
+  word rotation without repeats, completion recording, 5×
+  tier-unlock); `tests/game_flow_integration.rs` (4 integration
+  tests driving the same `Puzzle::pickup → release` sequence the
+  pointer handlers issue, against the real `words.json`,
+  including a save/load round-trip). New SSR test verifies the
+  un-won screen renders without the Next button or confetti.
+- **Audio + chime** still deferred to `betu-09` per parent plan.
+  The success chime is referenced in §7 but not wired up in
+  `betu-07`; today the win flow is silent.
