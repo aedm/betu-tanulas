@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@source "../src/**/*.rs";
+
+@theme {
+  --color-bone: #FBFAF7;
+  --color-ink: #1F2937;
+  --color-slot: #F3F4F6;
+  --color-success: #34D399;
+  --color-warn: #F59E0B;
+  --font-hyper: "Atkinson Hyperlegible", system-ui, sans-serif;
+}

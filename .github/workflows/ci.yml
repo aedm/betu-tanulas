@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TAILWIND_VERSION: v4.3.0
+  DIOXUS_CLI_VERSION: "0.7.9"
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: Test (cargo fmt + clippy + test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up diag dir
+        run: mkdir -p /tmp/diag
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
+        with:
+          components: rustfmt,clippy
+          target: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2.7.5
+        with:
+          shared-key: betu-tanulas
+
+      - name: Install Tailwind standalone CLI
+        run: |
+          set -o pipefail
+          curl -sSL -o /usr/local/bin/tailwindcss \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64" \
+            2>&1 | tee /tmp/diag/install_tw.log
+          chmod +x /usr/local/bin/tailwindcss
+          tailwindcss --help >/dev/null
+
+      - name: Build Tailwind CSS
+        run: |
+          set -o pipefail
+          tailwindcss -i assets/tailwind.input.css -o assets/tailwind.css --minify \
+            2>&1 | tee /tmp/diag/build_css.log
+
+      - name: cargo fmt --check
+        run: |
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee /tmp/diag/fmt.log
+
+      - name: cargo clippy
+        run: |
+          set -o pipefail
+          cargo clippy --all-targets -- -D warnings 2>&1 | tee /tmp/diag/clippy.log
+
+      - name: cargo test
+        run: |
+          set -o pipefail
+          cargo test --all-targets 2>&1 | tee /tmp/diag/test.log
+
+      - name: Post diagnostics on failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## CI \`test\` job failed (commit \`${{ github.sha }}\`)"
+            echo
+            for f in /tmp/diag/*.log; do
+              echo "<details><summary>$(basename "$f") — last 50 KB</summary>"
+              echo
+              echo '```'
+              tail -c 50000 "$f"
+              echo '```'
+              echo "</details>"
+              echo
+            done
+          } > /tmp/diag/comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            -F /tmp/diag/comment.md
+
+  bundle:
+    name: Bundle (dx bundle --platform web)
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up diag dir
+        run: mkdir -p /tmp/diag
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
+        with:
+          target: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2.7.5
+        with:
+          shared-key: betu-tanulas
+
+      - uses: taiki-e/install-action@v2.49.4
+        with:
+          tool: dioxus-cli@${{ env.DIOXUS_CLI_VERSION }}
+
+      - name: Install Tailwind standalone CLI
+        run: |
+          set -o pipefail
+          curl -sSL -o /usr/local/bin/tailwindcss \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64" \
+            2>&1 | tee /tmp/diag/install_tw.log
+          chmod +x /usr/local/bin/tailwindcss
+
+      - name: Build Tailwind CSS
+        run: |
+          set -o pipefail
+          tailwindcss -i assets/tailwind.input.css -o assets/tailwind.css --minify \
+            2>&1 | tee /tmp/diag/build_css.log
+
+      - name: dx bundle
+        run: |
+          set -o pipefail
+          dx bundle --platform web --release 2>&1 | tee /tmp/diag/bundle.log
+
+      - name: Verify bundle output
+        run: |
+          set -o pipefail
+          test -f dist/public/index.html || { echo "missing dist/public/index.html"; exit 1; }
+          ls -la dist/public/ 2>&1 | tee /tmp/diag/bundle_verify.log
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: dist
+          path: dist/public/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Post diagnostics on failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## CI \`bundle\` job failed (commit \`${{ github.sha }}\`)"
+            echo
+            for f in /tmp/diag/*.log; do
+              echo "<details><summary>$(basename "$f") — last 50 KB</summary>"
+              echo
+              echo '```'
+              tail -c 50000 "$f"
+              echo '```'
+              echo "</details>"
+              echo
+            done
+          } > /tmp/diag/comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            -F /tmp/diag/comment.md
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: bundle
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4.1.8
+        with:
+          name: dist
+          path: dist/public
+
+      - name: Deploy to Pages
+        uses: cloudflare/wrangler-action@v3.14.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist/public --project-name=betu-tanulas --branch=main --commit-dirty=true

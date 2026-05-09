@@ -1,0 +1,22 @@
+[application]
+out_dir = "dist"
+asset_dir = "public"
+
+[web.wasm_opt]
+level = "4"
+
+[web.app]
+title = "Betű Tanulás"
+
+[web.watcher]
+index_on_404 = true
+watch_path = ["src", "assets"]
+
+[bundle]
+identifier = "io.github.betu_tanulas"
+publisher = "aedm"
+resources = ["public/*"]
+short_description = "Hungarian letter-puzzle game for early readers."
+long_description = """
+A mobile-first drag-and-drop letter puzzle for Hungarian early readers.
+"""
