@@ -120,7 +120,8 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
             }
             div {
                 class: "betu-row betu-slots",
-                aria_label: "slots",
+                role: "group",
+                aria_label: t!("puzzle.slots_row"),
                 for (idx, slot) in p.slots.iter().enumerate() {
                     {
                         let target_for_drag = match dragging_idx {
@@ -129,10 +130,13 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                         };
                         let letter = slot
                             .and_then(|tile_idx| p.tiles.get(tile_idx).map(|t| t.letter));
+                        let slot_label = format!("Betűhely {}", idx + 1);
                         rsx! {
                             div {
                                 key: "slot-{idx}",
                                 class: "betu-cell betu-slot",
+                                role: "button",
+                                aria_label: "{slot_label}",
                                 "data-slot-index": "{idx}",
                                 "data-filled": if slot.is_some() { "true" } else { "false" },
                                 "data-target": if target_for_drag { "true" } else { "false" },
@@ -164,7 +168,8 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
             }
             div {
                 class: "betu-row betu-tiles",
-                aria_label: "tiles",
+                role: "group",
+                aria_label: t!("puzzle.tiles_row"),
                 for (idx, tile) in p.tiles.iter().enumerate() {
                     {
                         let placed = matches!(tile.state, TileState::Placed { .. });
@@ -184,10 +189,13 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                             }
                             _ => "touch-action: none;".to_string(),
                         };
+                        let tile_label = format!("Betű {}", tile.letter);
                         rsx! {
                             div {
                                 key: "tile-{idx}",
                                 class: "betu-cell betu-tile",
+                                role: "button",
+                                aria_label: "{tile_label}",
                                 "data-tile-index": "{idx}",
                                 "data-placed": if placed { "true" } else { "false" },
                                 "data-dragging": if dragging { "true" } else { "false" },

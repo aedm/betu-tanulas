@@ -28,6 +28,8 @@ pub fn translate(key: &'static str) -> &'static str {
         "puzzle.next" => "Következő",
         "puzzle.home" => "Főmenü",
         "puzzle.progress" => "Haladás",
+        "puzzle.slots_row" => "Betűhelyek",
+        "puzzle.tiles_row" => "Betűcserepek",
         _ => key,
     }
 }
