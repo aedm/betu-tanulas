@@ -769,3 +769,91 @@ Runtime budget: ~30 s for the full suite (10 tests × 2 projects)
 on Apple Silicon; CI sees similar with cache hit, ~90 s on cold
 cache including browser download. Comfortably under the 2-minute
 target.
+
+## 22. Idle replay + slot-tap repeat-instruction (`betu-11`, code-only slice)
+
+`betu-11` is mostly hardware verification (still pending — needs the
+user's child's phone). Two items from §3 and §7 were *blind code work*
+and landed here without device access.
+
+### §3 idle replay
+
+After 10 s of no `pointerdown` / `pointermove` / `pointerup` /
+`pointercancel` / slot-tap on the puzzle screen, the current word's
+audio replays. The kid hears the whole word reminded of what they're
+solving without having to ask. Tapping or dragging anything resets the
+clock; the next replay only fires after another full 10 s of idleness.
+
+### §7 slot-tap "repeat instruction"
+
+Tapping any cell in the slot row (filled or empty) plays the current
+word's audio. This is the kid's explicit "say it again" gesture.
+Implemented as `onclick` on each `.betu-slot`, gated on
+`!is_won() && dragging_tile().is_none()` so a drag-release-on-slot
+doesn't double-trigger.
+
+### Implementation
+
+- New module `src/idle.rs` holds `IdleReplay { last_input_ms,
+  idle_replays, slot_replays }`. Methods take wall-clock timestamps
+  explicitly (`note_input(now)`, `should_replay(now, threshold)`,
+  `note_replay(now)`, `note_slot_tap(now)`) so the state machine is
+  fully unit-testable on native — no DOM, no `Date::now`.
+- Threshold is `IDLE_REPLAY_THRESHOLD_MS = 10_000.0`.
+- In `puzzle_screen.rs`, the screen owns `Signal<IdleReplay>` seeded
+  with the current wall-clock at first render. Pointer handlers, slot
+  clicks, the home icon, and the Next button all bump
+  `note_input(now_ms())`. `note_input` is deliberately *not* called
+  from the bare `pointermove` path when no drag is active — that
+  path already early-returns to avoid 60 Hz re-renders, and a hover
+  without contact isn't a meaningful "wakefulness" signal on touch
+  devices.
+- Wasm-only: `install_idle_replay_timer` registers a 1 s
+  `setInterval` on mount and clears it on unmount via
+  `dioxus::core::use_hook_with_cleanup`. On each tick it consults
+  `should_replay` + `Game::is_won()` + `dragging_tile()`, plays the
+  word audio, and calls `note_replay` (which both bumps the counter
+  and re-arms the clock).
+- The interval is *always* alive while the puzzle screen is mounted;
+  navigating to the menu unmounts the screen and `clear_interval`
+  fires from the cleanup callback. No leaked timers, no audio plays
+  while the kid is on the menu.
+
+### E2E read-channels
+
+Two new attributes on `.betu-screen`:
+
+- `data-idle-replays="<N>"` — counter, bumped by the timer when it
+  fires the replay.
+- `data-slot-replays="<N>"` — counter, bumped on slot-tap.
+
+The headless e2e suite can't *hear* audio but uses these counters
+plus the existing `audio/word/<WORD>.wav` request log (visible in
+the `python3 -m http.server` access lines) to verify both behaviors.
+
+### Tests
+
+- 6 unit tests in `src/idle.rs` cover boundary, reset, replay rearm,
+  slot-tap counter independence, and a multi-replay sequence.
+- 1 SSR test in `tests/puzzle_screen_render.rs` asserts both new
+  data attributes start at `0`.
+- 3 e2e specs:
+  - `idle-replay.spec.ts` — wait 12 s, assert counter ≥ 1.
+  - `idle-replay.spec.ts` — pointerdown at +6 s + pointercancel,
+    wait another 6 s (12 s total but only 6 s since input), assert
+    counter still 0 (clock reset works).
+  - `slot-tap-repeat.spec.ts` — click slot-0, assert counter goes
+    `0 → 1 → 2`, slot stays empty (read-only tap).
+
+### What's still deferred to a real device
+
+Everything else in `tasks/betu-11-real-device-polish.md`:
+
+- iOS muted-switch behavior, double-play, echo on speakers + AirPods.
+- Tap responsiveness, 300 ms tap-delay verification.
+- Outdoor/sunlight contrast.
+- Notch / safe-area clipping.
+- Battery / overheat under sustained play.
+- PWA install banner + service worker decision.
+- Accessibility audit (VoiceOver / TalkBack on letter tiles,
+  reduced-motion confetti).

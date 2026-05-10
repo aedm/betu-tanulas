@@ -129,3 +129,24 @@ fn unsolved_screen_does_not_render_win_overlay_or_next_button() {
         "expected no confetti rain before win; got {html}"
     );
 }
+
+#[test]
+fn renders_zeroed_idle_and_slot_replay_counters() {
+    // The e2e suite reads `data-idle-replays` and `data-slot-replays`
+    // off `.betu-screen` to verify the §3 idle replay timer and the §7
+    // slot-tap repeat-instruction cue. They must be present from the
+    // first render so e2e tests can wait on them transitioning past 0.
+    let alma = load_words()
+        .into_iter()
+        .find(|w| w.word == "ALMA")
+        .expect("ALMA must be in words.json");
+    let html = render_for(alma);
+    assert!(
+        html.contains(r#"data-idle-replays="0""#),
+        "expected data-idle-replays=\"0\" on initial render; got {html}"
+    );
+    assert!(
+        html.contains(r#"data-slot-replays="0""#),
+        "expected data-slot-replays=\"0\" on initial render; got {html}"
+    );
+}

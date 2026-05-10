@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use crate::audio;
 use crate::game::Game;
+use crate::idle::IdleReplay;
 use crate::progress;
 use crate::puzzle::{DropOutcome, TileState};
 use crate::t;
@@ -10,6 +11,9 @@ const SNAP_RADIUS_PX: f64 = 40.0;
 
 #[component]
 pub fn PuzzleScreen(game: Signal<Game>) -> Element {
+    let mut idle = use_signal(|| IdleReplay::new(now_ms()));
+    install_idle_replay_timer(game, idle);
+
     let g = game.read();
     let p = &g.current_puzzle;
     let dragging_idx = p.dragging_tile();
@@ -24,6 +28,7 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
         .iter()
         .filter(|w| w.tier == current_tier && g.is_completed(&w.word))
         .count();
+    let idle_snapshot = *idle.read();
 
     rsx! {
         section {
@@ -32,6 +37,8 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
             "data-dragging": if dragging_idx.is_some() { "true" } else { "false" },
             "data-won": if won { "true" } else { "false" },
             "data-wrong-drops": "{wrong_drops}",
+            "data-idle-replays": "{idle_snapshot.idle_replays}",
+            "data-slot-replays": "{idle_snapshot.slot_replays}",
             onpointermove: move |evt| {
                 if won {
                     return;
@@ -43,6 +50,7 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                 game.write()
                     .current_puzzle
                     .pointer_move(evt.pointer_id(), (coords.x, coords.y));
+                idle.write().note_input(now_ms());
             },
             onpointerup: move |evt| {
                 if won {
@@ -75,9 +83,14 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                     audio::play_chime(volume);
                     audio::play_word(&word, volume);
                 }
+                idle.write().note_input(now_ms());
             },
             onpointercancel: move |evt| {
+                if game.read().current_puzzle.dragging_tile().is_none() {
+                    return;
+                }
                 game.write().current_puzzle.cancel(evt.pointer_id());
+                idle.write().note_input(now_ms());
             },
             div {
                 class: "betu-puzzle-header",
@@ -87,6 +100,7 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                     aria_label: t!("puzzle.home"),
                     "data-testid": "puzzle-home",
                     onclick: move |_| {
+                        idle.write().note_input(now_ms());
                         game.write().go_to_menu();
                     },
                     "🏠"
@@ -122,6 +136,26 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                                 "data-slot-index": "{idx}",
                                 "data-filled": if slot.is_some() { "true" } else { "false" },
                                 "data-target": if target_for_drag { "true" } else { "false" },
+                                onclick: move |_| {
+                                    let now = now_ms();
+                                    let (volume, word_to_say) = {
+                                        let g = game.read();
+                                        if g.is_won()
+                                            || g.current_puzzle.dragging_tile().is_some()
+                                        {
+                                            (None, None)
+                                        } else {
+                                            (
+                                                Some(g.progress.volume),
+                                                Some(g.current_word().word.clone()),
+                                            )
+                                        }
+                                    };
+                                    if let (Some(v), Some(w)) = (volume, word_to_say) {
+                                        idle.write().note_slot_tap(now);
+                                        audio::play_word(&w, v);
+                                    }
+                                },
                                 {letter.map(|c| c.to_string()).unwrap_or_default()}
                             }
                         }
@@ -159,6 +193,7 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                                 "data-dragging": if dragging { "true" } else { "false" },
                                 style: "{style}",
                                 onpointerdown: move |evt| {
+                                    idle.write().note_input(now_ms());
                                     if won {
                                         return;
                                     }
@@ -204,14 +239,15 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                 }
             }
             if won {
-                WinOverlay { emoji: emoji.clone(), game }
+                WinOverlay { emoji: emoji.clone(), game, idle }
             }
         }
     }
 }
 
 #[component]
-fn WinOverlay(emoji: String, game: Signal<Game>) -> Element {
+fn WinOverlay(emoji: String, game: Signal<Game>, idle: Signal<IdleReplay>) -> Element {
+    let mut idle = idle;
     rsx! {
         div {
             class: "betu-emoji-rain",
@@ -231,6 +267,7 @@ fn WinOverlay(emoji: String, game: Signal<Game>) -> Element {
             aria_label: t!("puzzle.next"),
             "data-testid": "betu-next",
             onclick: move |_| {
+                idle.write().note_input(now_ms());
                 {
                     let mut g = game.write();
                     g.advance_to_next();
@@ -241,6 +278,66 @@ fn WinOverlay(emoji: String, game: Signal<Game>) -> Element {
         }
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn now_ms() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn install_idle_replay_timer(game: Signal<Game>, mut idle: Signal<IdleReplay>) {
+    use crate::idle::IDLE_REPLAY_THRESHOLD_MS;
+    use dioxus::core::use_hook_with_cleanup;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
+
+    use_hook_with_cleanup(
+        move || {
+            let cb = Closure::wrap(Box::new(move || {
+                let now = now_ms();
+                let snapshot = *idle.peek();
+                if !snapshot.should_replay(now, IDLE_REPLAY_THRESHOLD_MS) {
+                    return;
+                }
+                let g = game.peek();
+                if g.is_won() || g.current_puzzle.dragging_tile().is_some() {
+                    return;
+                }
+                let word = g.current_word().word.clone();
+                let volume = g.progress.volume;
+                drop(g);
+                audio::play_word(&word, volume);
+                idle.write().note_replay(now);
+            }) as Box<dyn FnMut()>);
+
+            let window = web_sys::window().expect("window must exist on wasm");
+            let handle = window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    cb.as_ref().unchecked_ref(),
+                    1_000,
+                )
+                .expect("set_interval must succeed");
+            (handle, cb.into_js_value())
+        },
+        |(handle, _cb): (i32, wasm_bindgen::JsValue)| {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(handle);
+            }
+        },
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn install_idle_replay_timer(_game: Signal<Game>, _idle: Signal<IdleReplay>) {}
 
 #[cfg(target_arch = "wasm32")]
 fn pickup_origin_center(evt: &Event<PointerData>) -> Option<(f64, f64)> {

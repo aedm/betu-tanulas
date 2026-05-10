@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod game;
 pub mod i18n;
+pub mod idle;
 pub mod level_select;
 pub mod menu;
 pub mod progress;
