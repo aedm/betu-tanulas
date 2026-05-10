@@ -857,3 +857,107 @@ Everything else in `tasks/betu-11-real-device-polish.md`:
 - PWA install banner + service worker decision.
 - Accessibility audit (VoiceOver / TalkBack on letter tiles,
   reduced-motion confetti).
+
+## 23. A11y + safe-area + iOS web-app polish (`betu-11`, code-only slice 2)
+
+A second code-only slice of `betu-11` lands the implementation pieces
+of the device-polish list whose hardware concern is *verification*,
+not *implementation*. The actual on-device pass is still pending — the
+user still has to hold the kid's phone and confirm — but the phone
+will now meet the code halfway.
+
+**Custom HTML template (`index.html`).** dx CLI ships a default
+`prod.index.html` that hardcodes
+`<meta name="viewport" content="width=device-width, initial-scale=1">`
+with no `viewport-fit`. We override by dropping a custom `index.html`
+at the crate root (per dx 0.7's `prepare_html` lookup at
+`<crate-root>/index.html`). Our template adds:
+
+- `viewport-fit=cover` so the browser allows content under the system
+  bezels and `env(safe-area-inset-*)` resolves to non-zero on notched
+  phones.
+- `theme-color="#FBFAF7"` matching `--color-bone` so the iOS status-bar
+  area and the Android URL bar pick up the app palette.
+- `apple-mobile-web-app-capable=yes` +
+  `apple-mobile-web-app-status-bar-style=default` +
+  `apple-mobile-web-app-title=Betűk` so adding the page to the home
+  screen on iOS launches it full-screen with the right window title
+  (no "Safari" chrome wrapping; kids tap the icon and land in the
+  app).
+- `mobile-web-app-capable=yes` for the Android equivalent.
+- `format-detection=telephone=no` so iOS doesn't auto-link the digits
+  in the progress chip ("2 · 3/12") as phone numbers.
+- `<html lang="hu">` so VoiceOver / TalkBack pick the Hungarian voice
+  pack for letter announcements.
+
+The `{app_title}` placeholder + `<div id="main">` mount + `</head>` /
+`</body>` markers are preserved; dx's `inject_resources`,
+`inject_loading_scripts`, and `replace_template_placeholders` continue
+to substitute the wasm + JS asset paths and the title at bundle time.
+A guard test (`tests/index_html_template.rs`, 4 tests) compiles the
+template via `include_str!` and asserts the meta tags are present — the
+failure mode if a future scaffold regenerates the template is caught at
+`cargo test`, not on a notched device.
+
+**Safe-area CSS.** `.betu-app` gets
+`padding-{top,bottom,left,right}: env(safe-area-inset-*)`. Phones
+without a notch report zero on those values and lose nothing; notched
+phones gain ~44 px on top + ~34 px on the home-indicator side, which
+prevents the puzzle header (home icon + progress chip) from sitting
+under the notch and the Next button from landing under the home-bar.
+Inner screens (`.betu-screen`, `.betu-menu`, `.betu-level-select`)
+already use `clamp()`-based padding that compounds gracefully on top
+of the outer shell's safe-area; no change needed inside.
+
+**Reduced-motion preference (`prefers-reduced-motion: reduce`).**
+Confetti rain (`.betu-rain-drop`) and slot pulse
+(`.betu-screen[data-won="true"] .betu-slot`) are the two motion sources
+during the win flow. With reduced-motion on:
+
+- Slot pulse animation is suppressed (`animation: none`).
+- Confetti drops swap their 1.5 s falling-rotating animation for a
+  single 600 ms `betu-fade-in-soft` (opacity 0 → 0.85, no movement).
+  Kids who can't tolerate full-screen falling motion still get a
+  visual reward — celebration is part of the contract — just not
+  vestibular.
+- The Next button's 800 ms delayed fade-in is removed: it's visible
+  and tappable immediately on `is_won`, since the delay only existed
+  to let the motion settle.
+
+`.betu-tile`'s `transform: 250ms ease-out` spring-back transition is
+left alone — it's not decorative, it's a direct response to user input
+on a wrong drop, and removing it makes wrong drops feel broken.
+
+**ARIA + screen-reader announcement.**
+
+- Letter tiles get `role="button"` + `aria-label="Betű {L}"` ("letter
+  L" in Hungarian). Without the label, VoiceOver announces a single
+  letter as a flat character; with it, "betű A" reads naturally.
+- Slots get `role="button"` + positional `aria-label="Betűhely {N+1}"`
+  ("letter slot N", 1-indexed) so the screen reader can communicate
+  which position is which.
+- The slots row and tiles row become `role="group"` with localized
+  labels (`"Betűhelyek"` / `"Betűcserepek"`); the previous hardcoded
+  English `aria-label="slots"` / `"tiles"` was wrong for the
+  Hungarian-only audience.
+
+The dialog backdrop, parent-zone slider, and reset modal already
+carried correct localized labels from earlier subtasks.
+
+### What's still deferred to a real device after this slice
+
+The device-polish list shrinks to:
+
+- iOS muted-switch behavior, double-play, echo on speakers + AirPods.
+- Tap responsiveness — modern viewport + Pointer Events should already
+  eliminate the 300 ms tap delay; verification is hardware-only.
+- Outdoor/sunlight contrast.
+- **Verification** that the safe-area inset CSS lands cleanly on a
+  real notched phone (the implementation is in; the visual check is
+  hardware).
+- Battery / overheat under sustained play.
+- Service worker decision (intentionally deferred — caching the wasm
+  bundle could mask a bad deploy; `betu-12` decides).
+- **Verification** that VoiceOver / TalkBack actually read the new
+  Hungarian aria-labels with the `lang="hu"` voice (the labels are
+  in; the screen-reader check is hardware).

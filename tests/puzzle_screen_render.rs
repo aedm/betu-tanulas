@@ -131,6 +131,67 @@ fn unsolved_screen_does_not_render_win_overlay_or_next_button() {
 }
 
 #[test]
+fn tiles_carry_role_button_and_hungarian_aria_label() {
+    // VoiceOver / TalkBack will announce each tile by its aria-label; the
+    // visible text is just a single uppercase letter, which without a label
+    // is read as a flat character. "Betű A" reads as "letter A" in HU.
+    let alma = load_words()
+        .into_iter()
+        .find(|w| w.word == "ALMA")
+        .expect("ALMA must be in words.json");
+    let html = render_for(alma);
+    for c in ['A', 'L', 'M'] {
+        let needle = format!(r#"aria-label="Betű {c}""#);
+        assert!(
+            html.contains(&needle),
+            "expected tile aria-label {needle:?} on rendered ALMA puzzle; got {html}"
+        );
+    }
+    let role_count = html.matches(r#"role="button""#).count();
+    assert!(
+        role_count >= 4,
+        "expected at least 4 role=button (4 tiles for ALMA, plus slots); got {role_count}"
+    );
+}
+
+#[test]
+fn slots_carry_positional_aria_label() {
+    let cica = load_words()
+        .into_iter()
+        .find(|w| w.word == "CICA")
+        .expect("CICA must be in words.json");
+    let html = render_for(cica);
+    for n in 1..=4 {
+        let needle = format!(r#"aria-label="Betűhely {n}""#);
+        assert!(
+            html.contains(&needle),
+            "expected slot aria-label {needle:?} on rendered CICA puzzle; got {html}"
+        );
+    }
+}
+
+#[test]
+fn rows_use_localized_group_aria_labels() {
+    let alma = load_words()
+        .into_iter()
+        .find(|w| w.word == "ALMA")
+        .expect("ALMA must be in words.json");
+    let html = render_for(alma);
+    assert!(
+        html.contains(r#"aria-label="Betűhelyek""#),
+        "expected slots-row group aria-label; got {html}"
+    );
+    assert!(
+        html.contains(r#"aria-label="Betűcserepek""#),
+        "expected tiles-row group aria-label; got {html}"
+    );
+    assert!(
+        !html.contains(r#"aria-label="slots""#) && !html.contains(r#"aria-label="tiles""#),
+        "the old English row labels must not survive; got {html}"
+    );
+}
+
+#[test]
 fn renders_zeroed_idle_and_slot_replay_counters() {
     // The e2e suite reads `data-idle-replays` and `data-slot-replays`
     // off `.betu-screen` to verify the §3 idle replay timer and the §7
