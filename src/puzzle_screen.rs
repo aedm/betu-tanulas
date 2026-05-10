@@ -314,11 +314,7 @@ fn install_idle_replay_timer(game: Signal<Game>, mut idle: Signal<IdleReplay>) {
                 let now = now_ms();
                 let hidden = document_hidden();
                 let snapshot = *idle.peek();
-                if !snapshot.should_fire_replay(
-                    now,
-                    IDLE_REPLAY_THRESHOLD_MS,
-                    hidden,
-                ) {
+                if !snapshot.should_fire_replay(now, IDLE_REPLAY_THRESHOLD_MS, hidden) {
                     return;
                 }
                 let g = game.peek();

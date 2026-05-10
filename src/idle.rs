@@ -40,12 +40,7 @@ impl IdleReplay {
     /// backgrounded the kid isn't watching, and on iOS WebKit the
     /// audio call would queue and play minutes later when the parent
     /// pulls the phone out — startling, not helpful.
-    pub fn should_fire_replay(
-        &self,
-        now_ms: f64,
-        threshold_ms: f64,
-        hidden: bool,
-    ) -> bool {
+    pub fn should_fire_replay(&self, now_ms: f64, threshold_ms: f64, hidden: bool) -> bool {
         !hidden && self.should_replay(now_ms, threshold_ms)
     }
 
