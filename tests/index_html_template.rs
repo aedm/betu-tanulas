@@ -48,3 +48,22 @@ fn template_keeps_dx_placeholders_intact() {
     assert!(TEMPLATE.contains("{app_title}"), "missing {{app_title}}");
     assert!(TEMPLATE.contains(r#"id="main""#), "missing #main mount");
 }
+
+#[test]
+fn pwa_manifest_and_icons_linked() {
+    // The bundle pipeline copies these to the same paths under
+    // dist/public/. If a future scaffold drops the <link>s, "Add to
+    // Home Screen" silently regresses to a Safari-rendered fallback
+    // icon and the install prompt never offers standalone display.
+    for needle in [
+        r#"rel="manifest" href="/manifest.webmanifest""#,
+        r#"rel="apple-touch-icon" href="/icons/apple-touch-icon.png""#,
+        r#"rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png""#,
+        r#"rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png""#,
+    ] {
+        assert!(
+            TEMPLATE.contains(needle),
+            "expected link {needle:?} in index.html; got:\n{TEMPLATE}"
+        );
+    }
+}

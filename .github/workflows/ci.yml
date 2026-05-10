@@ -145,6 +145,19 @@ jobs:
           ls dist/public/audio/letter | head -3
           ls dist/public/audio/sfx
 
+      # PWA icons + webmanifest live alongside the audio: stable URLs
+      # (`/manifest.webmanifest`, `/icons/icon-192.png`, …) referenced
+      # from the custom index.html, so we keep them outside the
+      # `asset!()` hashed-bundle path.
+      - name: Copy PWA icons + manifest into bundle
+        run: |
+          set -o pipefail
+          mkdir -p dist/public/icons
+          cp assets/icons/*.png dist/public/icons/ 2>&1 | tee /tmp/diag/copy_pwa.log
+          cp assets/manifest.webmanifest dist/public/manifest.webmanifest \
+            2>&1 | tee -a /tmp/diag/copy_pwa.log
+          ls dist/public/icons
+
       - name: Verify bundle output
         run: |
           set -o pipefail
@@ -152,6 +165,10 @@ jobs:
           test -f dist/public/audio/sfx/snap.wav || { echo "missing snap.wav"; exit 1; }
           test -f dist/public/audio/sfx/chime.wav || { echo "missing chime.wav"; exit 1; }
           test -f dist/public/audio/letter/A.wav || { echo "missing letter A.wav"; exit 1; }
+          test -f dist/public/manifest.webmanifest || { echo "missing manifest.webmanifest"; exit 1; }
+          test -f dist/public/icons/icon-192.png || { echo "missing icon-192.png"; exit 1; }
+          test -f dist/public/icons/icon-512.png || { echo "missing icon-512.png"; exit 1; }
+          test -f dist/public/icons/apple-touch-icon.png || { echo "missing apple-touch-icon.png"; exit 1; }
           ls -la dist/public/ 2>&1 | tee /tmp/diag/bundle_verify.log
 
       - name: Upload dist artifact
