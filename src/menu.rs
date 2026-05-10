@@ -4,12 +4,13 @@
 //!
 //! The big play button resumes the active puzzle (the kid's
 //! continuation point). The hidden parent zone (triple-tap on the
-//! title) opens a confirm dialog for `reset_progress` — child-safe
-//! because three rapid taps on the same target is hard to do
-//! accidentally and the confirm dialog adds a second gate.
+//! title) opens a small parent menu with a volume slider and a reset
+//! button — child-safe because three rapid taps on the same target is
+//! hard to do accidentally and the modal adds a second gate.
 
 use dioxus::prelude::*;
 
+use crate::audio::VOLUME_MAX;
 use crate::game::Game;
 use crate::progress;
 use crate::t;
@@ -23,10 +24,11 @@ const PARENT_TAP_COUNT: u32 = 3;
 #[component]
 pub fn MainMenu(game: Signal<Game>) -> Element {
     let mut tap_count = use_signal(|| 0u32);
-    let mut show_reset = use_signal(|| false);
+    let mut show_parent = use_signal(|| false);
 
     let g = game.read();
     let unlocked = g.progress.tier_unlocked;
+    let volume = g.progress.volume;
     let max_tier = g.words.iter().map(|w| w.tier).max().unwrap_or(1);
 
     let tiers: Vec<TierEntry> = (1..=max_tier)
@@ -50,7 +52,7 @@ pub fn MainMenu(game: Signal<Game>) -> Element {
                     let n = *tap_count.read() + 1;
                     if n >= PARENT_TAP_COUNT {
                         tap_count.set(0);
-                        show_reset.set(true);
+                        show_parent.set(true);
                     } else {
                         tap_count.set(n);
                     }
@@ -101,16 +103,22 @@ pub fn MainMenu(game: Signal<Game>) -> Element {
                     }
                 }
             }
-            if *show_reset.read() {
-                ResetDialog {
-                    on_confirm: move |_| {
+            if *show_parent.read() {
+                ParentDialog {
+                    volume,
+                    on_volume_change: move |v: u32| {
+                        let mut g = game.write();
+                        g.progress.volume = v.min(VOLUME_MAX);
+                        progress::save(&g.progress);
+                    },
+                    on_reset: move |_| {
                         let mut g = game.write();
                         g.reset_progress();
                         progress::save(&g.progress);
-                        show_reset.set(false);
+                        show_parent.set(false);
                     },
-                    on_cancel: move |_| {
-                        show_reset.set(false);
+                    on_close: move |_| {
+                        show_parent.set(false);
                     },
                 }
             }
@@ -134,34 +142,80 @@ fn tier_icon(words: &[Word], tier: u32) -> String {
 }
 
 #[component]
-fn ResetDialog(
-    on_confirm: EventHandler<MouseEvent>,
-    on_cancel: EventHandler<MouseEvent>,
+pub fn ParentDialog(
+    volume: u32,
+    on_volume_change: EventHandler<u32>,
+    on_reset: EventHandler<MouseEvent>,
+    on_close: EventHandler<MouseEvent>,
 ) -> Element {
+    let mut show_reset_confirm = use_signal(|| false);
+
     rsx! {
         div {
             class: "betu-modal-backdrop",
-            "data-testid": "reset-dialog",
+            "data-testid": "parent-dialog",
             role: "dialog",
             aria_modal: "true",
             div {
                 class: "betu-modal",
-                p { class: "betu-modal-title", {t!("menu.reset_confirm")} }
+                p { class: "betu-modal-title", {t!("menu.parent_zone")} }
+                label {
+                    class: "betu-volume-row",
+                    r#for: "betu-volume",
+                    span {
+                        class: "betu-volume-label",
+                        "data-testid": "volume-label",
+                        "{t!(\"menu.volume\")}: {volume}"
+                    }
+                    input {
+                        id: "betu-volume",
+                        class: "betu-volume-slider",
+                        r#type: "range",
+                        min: "0",
+                        max: "{VOLUME_MAX}",
+                        step: "1",
+                        value: "{volume}",
+                        "data-testid": "volume-slider",
+                        aria_label: t!("menu.volume"),
+                        oninput: move |evt| {
+                            if let Ok(v) = evt.value().parse::<u32>() {
+                                on_volume_change.call(v);
+                            }
+                        },
+                    }
+                }
                 div {
                     class: "betu-modal-buttons",
-                    button {
-                        class: "betu-modal-yes",
-                        r#type: "button",
-                        "data-testid": "reset-yes",
-                        onclick: move |evt| on_confirm.call(evt),
-                        {t!("menu.reset_yes")}
-                    }
-                    button {
-                        class: "betu-modal-no",
-                        r#type: "button",
-                        "data-testid": "reset-no",
-                        onclick: move |evt| on_cancel.call(evt),
-                        {t!("menu.reset_no")}
+                    if *show_reset_confirm.read() {
+                        button {
+                            class: "betu-modal-yes",
+                            r#type: "button",
+                            "data-testid": "reset-yes",
+                            onclick: move |evt| on_reset.call(evt),
+                            {t!("menu.reset_yes")}
+                        }
+                        button {
+                            class: "betu-modal-no",
+                            r#type: "button",
+                            "data-testid": "reset-no",
+                            onclick: move |_| show_reset_confirm.set(false),
+                            {t!("menu.reset_no")}
+                        }
+                    } else {
+                        button {
+                            class: "betu-modal-warn",
+                            r#type: "button",
+                            "data-testid": "reset-open",
+                            onclick: move |_| show_reset_confirm.set(true),
+                            {t!("menu.reset")}
+                        }
+                        button {
+                            class: "betu-modal-no",
+                            r#type: "button",
+                            "data-testid": "parent-close",
+                            onclick: move |evt| on_close.call(evt),
+                            {t!("menu.close")}
+                        }
                     }
                 }
             }

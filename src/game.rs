@@ -270,6 +270,7 @@ mod tests {
             completed: Vec::new(),
             current_tier: 3,
             tier_unlocked: 1,
+            volume: crate::audio::VOLUME_DEFAULT,
         };
         let g = Game::new(dict(), p, Some(42));
         assert_eq!(g.current_tier, 1);
@@ -281,6 +282,7 @@ mod tests {
             completed: Vec::new(),
             current_tier: 2,
             tier_unlocked: 2,
+            volume: crate::audio::VOLUME_DEFAULT,
         };
         let g = Game::new(dict(), p, Some(42));
         assert_eq!(g.current_tier, 2);
@@ -472,5 +474,18 @@ mod tests {
         let g2 = Game::new(dict(), restored.clone(), Some(99));
         assert_eq!(g2.progress.completed, restored.completed);
         assert_eq!(g2.progress.tier_unlocked, restored.tier_unlocked);
+    }
+
+    #[test]
+    fn volume_change_round_trips_through_progress_json() {
+        // The parent dialog mutates `g.progress.volume` and then calls
+        // `progress::save`. Serialization is the persistence boundary; if
+        // the field doesn't survive a JSON round-trip, the slider won't
+        // either.
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        g.progress.volume = 25;
+        let saved = g.progress.to_json();
+        let restored = Progress::from_json(&saved).expect("must parse");
+        assert_eq!(restored.volume, 25);
     }
 }

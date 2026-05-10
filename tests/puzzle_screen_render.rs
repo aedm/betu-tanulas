@@ -2,6 +2,7 @@
 //! the emoji, N empty slots, and N tiles whose letters are a permutation of
 //! the word. Uses dioxus-ssr (no browser).
 
+use betu_tanulas::audio::VOLUME_DEFAULT;
 use betu_tanulas::{Game, Progress, PuzzleScreen, Word, load_words};
 use dioxus::prelude::*;
 
@@ -10,6 +11,7 @@ fn game_for(word: Word) -> Game {
         completed: Vec::new(),
         current_tier: word.tier,
         tier_unlocked: word.tier,
+        volume: VOLUME_DEFAULT,
     };
     Game::new(vec![word], progress, Some(7))
 }

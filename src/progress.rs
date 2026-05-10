@@ -5,10 +5,15 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::audio::VOLUME_DEFAULT;
 use crate::word::Word;
 
 pub const STORAGE_KEY: &str = "betu/progress/v1";
 pub const N_UNLOCK: u32 = 5;
+
+fn default_volume() -> u32 {
+    VOLUME_DEFAULT
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Progress {
@@ -17,6 +22,11 @@ pub struct Progress {
     pub current_tier: u32,
     #[serde(rename = "tierUnlocked")]
     pub tier_unlocked: u32,
+    /// Master volume, `0..=100`. Stored alongside progress so the parent
+    /// only sets it once. `#[serde(default)]` keeps pre-`betu-09` saves
+    /// loadable: missing field falls back to [`VOLUME_DEFAULT`].
+    #[serde(default = "default_volume")]
+    pub volume: u32,
 }
 
 impl Default for Progress {
@@ -25,6 +35,7 @@ impl Default for Progress {
             completed: Vec::new(),
             current_tier: 1,
             tier_unlocked: 1,
+            volume: VOLUME_DEFAULT,
         }
     }
 }
@@ -96,6 +107,7 @@ pub fn save(_p: &Progress) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::VOLUME_MAX;
 
     fn w(word: &str, tier: u32) -> Word {
         Word {
@@ -119,6 +131,7 @@ mod tests {
             completed: vec!["CICA".into(), "ALMA".into()],
             current_tier: 2,
             tier_unlocked: 2,
+            volume: 42,
         };
         let json = p.to_json();
         let back = Progress::from_json(&json).expect("must parse own output");
@@ -131,6 +144,7 @@ mod tests {
             completed: vec!["CICA".into()],
             current_tier: 2,
             tier_unlocked: 3,
+            volume: VOLUME_DEFAULT,
         };
         let json = p.to_json();
         assert!(
@@ -141,6 +155,26 @@ mod tests {
             json.contains("\"tierUnlocked\":3"),
             "expected camelCase tierUnlocked in {json}"
         );
+    }
+
+    #[test]
+    fn pre_betu_09_save_loads_with_default_volume() {
+        // A localStorage payload written before the volume field existed
+        // must still parse, with volume falling back to VOLUME_DEFAULT so
+        // the audio cues stay audible after the upgrade.
+        let legacy = r#"{"completed":["CICA"],"currentTier":1,"tierUnlocked":2}"#;
+        let p = Progress::from_json(legacy).expect("legacy v1 saves must still parse");
+        assert_eq!(p.volume, VOLUME_DEFAULT);
+        assert_eq!(p.completed, vec!["CICA".to_string()]);
+        assert_eq!(p.tier_unlocked, 2);
+    }
+
+    #[test]
+    fn default_volume_is_audible_default() {
+        let p = Progress::default();
+        assert_eq!(p.volume, VOLUME_DEFAULT);
+        assert!(p.volume > 0, "default must be audible, not muted");
+        assert!(p.volume <= VOLUME_MAX, "default must be in 0..=VOLUME_MAX");
     }
 
     #[test]
@@ -166,6 +200,7 @@ mod tests {
             completed: vec!["AB".into(), "AC".into(), "AD".into(), "AE".into()],
             current_tier: 1,
             tier_unlocked: 1,
+            volume: VOLUME_DEFAULT,
         };
         p.recompute_tier_unlock(&words);
         assert_eq!(p.tier_unlocked, 1, "4 < 5: still locked");
@@ -181,6 +216,7 @@ mod tests {
             completed: vec![],
             current_tier: 1,
             tier_unlocked: 3, // already unlocked further (e.g. via past play)
+            volume: VOLUME_DEFAULT,
         };
         p.recompute_tier_unlock(&words);
         assert_eq!(

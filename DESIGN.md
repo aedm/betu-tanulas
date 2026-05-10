@@ -562,3 +562,135 @@ than two taps from the menu.
   - The original §9 "long-press parent menu on home icon" is
     *replaced* by the title triple-tap in v1; revisit if user
     objects.
+
+## 20. Audio + parent-zone volume (`betu-09`)
+
+Implements §7 with the smallest viable wiring: stateless cue helpers,
+silent-stub assets for letters/words, synthesized SFX, persisted
+volume.
+
+### Module layout
+
+- `src/audio.rs` — public stateless helpers `play_letter / play_word
+  / play_snap / play_chime`. Each takes a `volume: u32` (0..=100)
+  read from `Game.progress.volume` at call time. URL helpers
+  (`letter_url`, `word_url`, `SNAP_URL`, `CHIME_URL`) are pure
+  functions — testable on native.
+- Wasm path uses `web_sys::HtmlAudioElement::new_with_src` →
+  `set_volume(volume_to_unit(v))` → `play()`. The element is
+  transient; the browser keeps it alive until playback finishes,
+  then it gets GC'd. No element pool, no preloading complexity.
+- Native (test) path: every play call is a `_url, _volume` no-op
+  with the same signature so tests run without a browser.
+- `volume == 0` short-circuits the wasm path before creating the
+  `<audio>` element.
+
+### Asset pipeline
+
+- Stubs: `assets/audio/letter/<L>.wav` (26) and
+  `assets/audio/word/<WORD>.wav` (41) are 80 ms of silence at
+  16 kHz mono 16-bit (~1.3 KB each). Total ~100 KB. The user
+  records over them in-place when ready (DESIGN §7's "recording
+  responsibility on user").
+- SFX: `assets/audio/sfx/snap.wav` (60 ms decaying noise burst)
+  and `assets/audio/sfx/chime.wav` (C5–E5–G5 sine arpeggio with
+  exponential decay, ~600 ms). Both synthesized programmatically;
+  no third-party samples.
+- Generator: `tools/gen_audio.py` reads `assets/words.json`,
+  writes all of the above. Idempotent (deterministic snap RNG).
+  Run via `make audio` after editing words or when bootstrapping
+  a fresh checkout.
+- Bundle copy: `dx bundle` does not pick up unreferenced files.
+  `make bundle` and `.github/workflows/ci.yml`'s `bundle` job
+  both copy `assets/audio/` → `dist/public/audio/` after the
+  Dioxus bundle step. CI verifies the SFX files are present
+  before uploading the artifact.
+- Attribution: `assets/audio/ATTRIBUTIONS.md` records every
+  shipped file's source and license. Synthesized files = our
+  own; silent stubs = placeholders for future user recordings.
+
+### Cue triggers (mapped from §7)
+
+| Cue | Trigger in code | Helper |
+| --- | --- | --- |
+| Letter phoneme | `onpointerdown` after `Puzzle::pickup` returns true | `audio::play_letter(c, v)` |
+| Snap into slot | `onpointerup` when `Puzzle::release` yields `Snapped` | `audio::play_snap(v)` |
+| Win chime | `onpointerup` when `Game::is_won()` becomes true | `audio::play_chime(v)` |
+| Word pronunciation | Same release path as the chime, fired alongside | `audio::play_word(word, v)` |
+| Wrong drop | (no cue) | — |
+
+The win-flow chime + word fire from the same release handler so
+they begin in the same audio frame as the snap — the browser
+sequences them by element. Silence on wrong drops is per `betu-09`
+spec ("don't punish with a buzz") and §7.
+
+§7's "slot tap to repeat instruction" and §3's "idle replay after
+~10 s" are deferred — neither blocks the kid playing v1; both
+belong to a later device-polish iteration that can tune timings
+on real hardware.
+
+### Volume persistence (parent zone)
+
+- `Progress.volume: u32` (0..=100) defaults to 70 on first launch.
+- `#[serde(default = "default_volume")]` makes pre-`betu-09`
+  saves still parse — old `localStorage["betu/progress/v1"]`
+  payloads load with `volume = VOLUME_DEFAULT`.
+- The parent dialog (still gated behind a triple-tap on the menu
+  title) is now a small panel:
+  - A `<input type="range" min=0 max=100 step=1>` slider that
+    updates `Progress.volume` on every `oninput` and immediately
+    calls `progress::save` so a closed dialog still persists the
+    new setting.
+  - A primary "Reset progress" button that opens an in-modal
+    Igen / Mégse confirm pair before destroying state. The
+    confirm UI now lives inside the parent dialog rather than a
+    separate "Are you sure?" modal.
+  - A "Bezár" (close) button that dismisses the dialog without
+    touching state.
+- The slider does not duplicate volume into a separate signal —
+  the source of truth is `Progress.volume`, which already
+  round-trips through `progress::save / load`. A test
+  (`game.rs::volume_change_round_trips_through_progress_json`)
+  pins this contract.
+
+### iOS Safari notes
+
+- HTMLAudioElement requires a user gesture before the first
+  `.play()` resolves on iOS. The kid's first tap on a tile is
+  the gesture, so we get this for free; cold launches with no
+  interaction simply queue silence (Promise rejection ignored).
+- WAV is reliably playable on both iOS Safari and Android
+  Chrome. We ship WAV not OGG/MP3 because synthesizing WAV from
+  scratch needs no external tooling; size cost (~200 KB total)
+  is fine for a static SPA. The user can replace stub WAVs
+  with real recordings in any browser-supported codec —
+  the URL convention (`<L>.wav`) is the only constraint.
+
+### Tests
+
+- 9 unit tests in `src/audio.rs` (URL formats + volume clamping +
+  native no-op smoke).
+- 3 integration tests in `tests/audio_assets.rs` proving every
+  letter / word in the dictionary has a stub on disk and the
+  two SFX exist + non-trivially sized.
+- 5 SSR tests in `tests/parent_dialog_render.rs` covering the
+  rendered slider markup, default state buttons, and localized
+  caption.
+- `tests/menu_render.rs` updated to assert the slider + dialog
+  are *not* in the initial menu render (i.e., the triple-tap
+  gate still works).
+- 1 unit test in `src/game.rs` proving volume round-trips
+  through `Progress` JSON serialization.
+- 1 unit test in `src/progress.rs` proving a pre-`betu-09`
+  legacy save (no volume field) loads with the default volume.
+
+108 tests total (87 from `betu-08` + 21 new).
+
+### What's deferred to `betu-11` device polish
+
+- Real-device verification (audio plays, doesn't double, doesn't
+  echo, no iOS muted-switch gotchas).
+- Idle-replay of the word audio after ~10 s of no progress (§3).
+- Slot-tap "repeat instruction" cue (§7).
+- Tuning chime timbre / volume against a real living-room
+  listening test.

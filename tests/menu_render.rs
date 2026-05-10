@@ -1,10 +1,12 @@
 //! SSR-renders MainMenu against the real dictionary and verifies its
 //! reading-free, icon-driven layout: the title, the play button, one
 //! tier button per tier, and a `data-locked="true"` for tiers above
-//! `tier_unlocked`. The reset dialog stays hidden until the title is
-//! triple-tapped (we exercise that path in the navigation flow test
-//! by driving model methods directly, not the UI tap).
+//! `tier_unlocked`. The parent dialog (volume slider + reset) stays
+//! hidden until the title is triple-tapped (we exercise that path in
+//! the navigation flow test by driving model methods directly, not the
+//! UI tap).
 
+use betu_tanulas::audio::VOLUME_DEFAULT;
 use betu_tanulas::{Game, MainMenu, Progress, load_words};
 use dioxus::prelude::*;
 
@@ -67,6 +69,7 @@ fn unlocking_tier_two_renders_only_tier_three_locked() {
         completed: Vec::new(),
         current_tier: 1,
         tier_unlocked: 2,
+        volume: VOLUME_DEFAULT,
     };
     let html = render_menu(progress);
     assert_eq!(
@@ -86,10 +89,14 @@ fn menu_title_is_localized_to_hungarian() {
 }
 
 #[test]
-fn reset_dialog_is_not_rendered_initially() {
+fn parent_dialog_is_not_rendered_initially() {
     let html = render_menu(Progress::default());
     assert!(
-        !html.contains(r#"data-testid="reset-dialog""#),
-        "reset dialog must be hidden until parent gesture; got {html}"
+        !html.contains(r#"data-testid="parent-dialog""#),
+        "parent dialog must be hidden until triple-tap; got {html}"
+    );
+    assert!(
+        !html.contains(r#"data-testid="volume-slider""#),
+        "volume slider lives behind the parent dialog; got {html}"
     );
 }
