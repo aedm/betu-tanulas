@@ -16,6 +16,7 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
     let won = g.is_won();
     let word = p.word.word.clone();
     let emoji = p.word.emoji.clone();
+    let wrong_drops = p.wrong_drops;
     let current_tier = g.current_tier;
     let total_in_tier = g.words.iter().filter(|w| w.tier == current_tier).count();
     let done_in_tier = g
@@ -30,6 +31,7 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
             "data-word": "{word}",
             "data-dragging": if dragging_idx.is_some() { "true" } else { "false" },
             "data-won": if won { "true" } else { "false" },
+            "data-wrong-drops": "{wrong_drops}",
             onpointermove: move |evt| {
                 if won {
                     return;
