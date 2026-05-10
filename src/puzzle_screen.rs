@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
 
+use crate::audio;
 use crate::game::Game;
 use crate::progress;
-use crate::puzzle::TileState;
+use crate::puzzle::{DropOutcome, TileState};
 use crate::t;
 
 const SNAP_RADIUS_PX: f64 = 40.0;
@@ -55,9 +56,23 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                     w.current_puzzle.pointer_move(pid, (coords.x, coords.y));
                 }
                 let centers = measure_slot_centers();
-                game.write()
-                    .current_puzzle
-                    .release(pid, &centers, SNAP_RADIUS_PX);
+                let (outcome, volume, completed_word) = {
+                    let mut w = game.write();
+                    let outcome = w.current_puzzle.release(pid, &centers, SNAP_RADIUS_PX);
+                    let completed = if w.is_won() {
+                        Some(w.current_word().word.clone())
+                    } else {
+                        None
+                    };
+                    (outcome, w.progress.volume, completed)
+                };
+                if matches!(outcome, DropOutcome::Snapped { .. }) {
+                    audio::play_snap(volume);
+                }
+                if let Some(word) = completed_word {
+                    audio::play_chime(volume);
+                    audio::play_word(&word, volume);
+                }
             },
             onpointercancel: move |evt| {
                 game.write().current_puzzle.cancel(evt.pointer_id());
@@ -161,12 +176,23 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                                     let origin_center =
                                         pickup_origin_center(&evt).unwrap_or(pointer);
                                     let pid = evt.pointer_id();
-                                    let picked = game
-                                        .write()
-                                        .current_puzzle
-                                        .pickup(idx, pid, pointer, origin_center);
+                                    let (picked, volume, letter) = {
+                                        let mut w = game.write();
+                                        let letter = w
+                                            .current_puzzle
+                                            .tiles
+                                            .get(idx)
+                                            .map(|t| t.letter);
+                                        let picked = w
+                                            .current_puzzle
+                                            .pickup(idx, pid, pointer, origin_center);
+                                        (picked, w.progress.volume, letter)
+                                    };
                                     if picked {
                                         capture_pointer_for_event(&evt, pid);
+                                        if let Some(c) = letter {
+                                            audio::play_letter(c, volume);
+                                        }
                                     }
                                 },
                                 "{tile.letter}"

@@ -24,6 +24,8 @@ web-sys = { version = "0.3", features = [
     "Document",
     "Element",
     "HtmlElement",
+    "HtmlAudioElement",
+    "HtmlMediaElement",
     "EventTarget",
     "DomRect",
     "NodeList",

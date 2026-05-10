@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod game;
 pub mod i18n;
 pub mod level_select;
@@ -12,7 +13,7 @@ use dioxus::prelude::*;
 
 pub use game::Game;
 pub use level_select::LevelSelect;
-pub use menu::MainMenu;
+pub use menu::{MainMenu, ParentDialog};
 pub use progress::Progress;
 pub use puzzle::{DropOutcome, Puzzle, Tile, TileState, shuffle};
 pub use puzzle_screen::PuzzleScreen;

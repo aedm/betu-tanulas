@@ -132,10 +132,26 @@ jobs:
           set -o pipefail
           dx bundle --platform web --release 2>&1 | tee /tmp/diag/bundle.log
 
+      # Audio assets aren't referenced through the Dioxus `asset!()` macro
+      # (we want stable URLs like /audio/letter/A.wav so the runtime
+      # service can build paths from a letter or word string), so the
+      # bundler doesn't copy them. Do it explicitly here.
+      - name: Copy audio assets into bundle
+        run: |
+          set -o pipefail
+          mkdir -p dist/public/audio
+          cp -R assets/audio/letter assets/audio/word assets/audio/sfx \
+            dist/public/audio/ 2>&1 | tee /tmp/diag/copy_audio.log
+          ls dist/public/audio/letter | head -3
+          ls dist/public/audio/sfx
+
       - name: Verify bundle output
         run: |
           set -o pipefail
           test -f dist/public/index.html || { echo "missing dist/public/index.html"; exit 1; }
+          test -f dist/public/audio/sfx/snap.wav || { echo "missing snap.wav"; exit 1; }
+          test -f dist/public/audio/sfx/chime.wav || { echo "missing chime.wav"; exit 1; }
+          test -f dist/public/audio/letter/A.wav || { echo "missing letter A.wav"; exit 1; }
           ls -la dist/public/ 2>&1 | tee /tmp/diag/bundle_verify.log
 
       - name: Upload dist artifact

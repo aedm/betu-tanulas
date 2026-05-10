@@ -3,6 +3,7 @@
 //! `data-completed="true"` (and their emoji), and never-completed
 //! words are rendered with `?` so the kid keeps a sense of mystery.
 
+use betu_tanulas::audio::VOLUME_DEFAULT;
 use betu_tanulas::{Game, LevelSelect, Progress, load_words};
 use dioxus::prelude::*;
 
@@ -49,6 +50,7 @@ fn completed_words_show_their_emoji_and_completed_attr() {
         completed: vec!["APA".to_string()],
         current_tier: 1,
         tier_unlocked: 1,
+        volume: VOLUME_DEFAULT,
     };
     let html = render(progress, 1);
     assert!(
@@ -85,6 +87,7 @@ fn tier_two_grid_renders_when_unlocked() {
         completed: Vec::new(),
         current_tier: 1,
         tier_unlocked: 2,
+        volume: VOLUME_DEFAULT,
     };
     let html = render(progress, 2);
     let count = html.matches(r#"class="betu-word-tile""#).count();

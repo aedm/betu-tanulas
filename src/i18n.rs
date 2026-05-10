@@ -21,6 +21,8 @@ pub fn translate(key: &'static str) -> &'static str {
         "menu.reset_confirm" => "Biztos törlöd?",
         "menu.reset_yes" => "Igen",
         "menu.reset_no" => "Mégse",
+        "menu.volume" => "Hangerő",
+        "menu.close" => "Bezár",
         "level_select.back" => "Vissza",
         "level_select.title" => "Válassz szót",
         "puzzle.next" => "Következő",
