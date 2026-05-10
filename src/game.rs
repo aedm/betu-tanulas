@@ -7,6 +7,7 @@
 
 use crate::progress::Progress;
 use crate::puzzle::{Puzzle, shuffle};
+use crate::screen::Screen;
 use crate::word::Word;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +20,7 @@ pub struct Game {
     /// reshuffles the tier's full word list.
     pub queue: Vec<Word>,
     pub current_puzzle: Puzzle,
+    pub screen: Screen,
     seed: u64,
 }
 
@@ -59,6 +61,7 @@ impl Game {
             current_tier,
             queue,
             current_puzzle: puzzle,
+            screen: Screen::Menu,
             seed,
         }
     }
@@ -69,6 +72,92 @@ impl Game {
 
     pub fn is_won(&self) -> bool {
         self.current_puzzle.is_complete()
+    }
+
+    /// Words available in `tier`, in their dictionary order (stable for UI
+    /// listing). Returned by reference so callers can index without cloning.
+    pub fn words_in_tier(&self, tier: u32) -> Vec<&Word> {
+        self.words.iter().filter(|w| w.tier == tier).collect()
+    }
+
+    /// Has this word ever been completed?
+    pub fn is_completed(&self, word: &str) -> bool {
+        self.progress.completed.iter().any(|w| w == word)
+    }
+
+    /// Tap from the main menu's tier button. No-op if `tier` is locked or
+    /// out of range — buttons should already be `disabled`, but the model
+    /// double-checks so test sequences and accidental taps stay safe.
+    pub fn enter_tier(&mut self, tier: u32) {
+        if tier == 0 || tier > self.progress.tier_unlocked {
+            return;
+        }
+        self.screen = Screen::LevelSelect { tier };
+    }
+
+    /// Tap on a specific word tile in the level-select grid. Replaces the
+    /// active puzzle with a fresh one for the chosen word, builds a queue
+    /// of the *other* words in the same tier (so post-win advance still
+    /// works), and switches the screen.
+    pub fn start_word(&mut self, word_str: &str) {
+        let Some(target) = self.words.iter().find(|w| w.word == word_str).cloned() else {
+            return;
+        };
+        if target.tier > self.progress.tier_unlocked {
+            return;
+        }
+        self.current_tier = target.tier;
+        self.progress.current_tier = target.tier;
+
+        self.queue = self
+            .words
+            .iter()
+            .filter(|w| w.tier == target.tier && w.word != target.word)
+            .cloned()
+            .collect();
+        shuffle(&mut self.queue, Some(self.seed));
+        self.seed = self.seed.wrapping_add(1);
+
+        self.current_puzzle = Puzzle::new(target, Some(self.seed));
+        self.seed = self.seed.wrapping_add(1);
+
+        self.screen = Screen::Puzzle;
+    }
+
+    /// Big "Play" button on the main menu. Resumes the active puzzle if
+    /// one is in flight; otherwise starts a fresh tier-1 word. Either way,
+    /// switches to the puzzle screen.
+    pub fn resume_play(&mut self) {
+        // The constructor always seeds `current_puzzle` with a tier word,
+        // so resume just switches screen. If state somehow drifted, the
+        // user can still tap a tier button to enter level-select.
+        self.screen = Screen::Puzzle;
+    }
+
+    /// Tap on the in-game home icon. Drops back to the main menu without
+    /// disturbing the active puzzle (so the kid can resume where they
+    /// were).
+    pub fn go_to_menu(&mut self) {
+        self.screen = Screen::Menu;
+    }
+
+    /// Hidden parent action from the main menu. Wipes progress and
+    /// rewinds the current puzzle to a fresh tier-1 word so resume picks
+    /// up cleanly. Caller is responsible for persisting via
+    /// `progress::save` after.
+    pub fn reset_progress(&mut self) {
+        self.progress = Progress::default();
+        self.current_tier = 1;
+
+        self.queue = self.words.iter().filter(|w| w.tier == 1).cloned().collect();
+        shuffle(&mut self.queue, Some(self.seed));
+        self.seed = self.seed.wrapping_add(1);
+        if !self.queue.is_empty() {
+            let first = self.queue.remove(0);
+            self.current_puzzle = Puzzle::new(first, Some(self.seed));
+            self.seed = self.seed.wrapping_add(1);
+        }
+        self.screen = Screen::Menu;
     }
 
     /// Record the current word as completed (if won) and rotate to the
@@ -244,6 +333,109 @@ mod tests {
         }
         assert_eq!(g.progress.tier_unlocked, 2);
         assert_eq!(g.progress.completed.len(), N_UNLOCK as usize);
+    }
+
+    #[test]
+    fn new_starts_on_menu_screen() {
+        let g = Game::new(dict(), Progress::default(), Some(42));
+        assert_eq!(g.screen, Screen::Menu);
+    }
+
+    #[test]
+    fn enter_tier_switches_to_level_select_when_unlocked() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        g.enter_tier(1);
+        assert_eq!(g.screen, Screen::LevelSelect { tier: 1 });
+    }
+
+    #[test]
+    fn enter_tier_is_a_no_op_when_locked() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        g.enter_tier(2);
+        assert_eq!(
+            g.screen,
+            Screen::Menu,
+            "tier 2 is locked at default; menu must not change"
+        );
+    }
+
+    #[test]
+    fn enter_tier_is_a_no_op_for_tier_zero() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        g.enter_tier(0);
+        assert_eq!(g.screen, Screen::Menu);
+    }
+
+    #[test]
+    fn start_word_loads_chosen_word_into_puzzle_and_switches_screen() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        g.start_word("AC");
+        assert_eq!(g.screen, Screen::Puzzle);
+        assert_eq!(g.current_word().word, "AC");
+        assert!(!g.queue.iter().any(|w| w.word == "AC"));
+    }
+
+    #[test]
+    fn start_word_refuses_word_in_locked_tier() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        // BAB is tier 2; default unlocked is 1.
+        g.start_word("BAB");
+        assert_eq!(g.screen, Screen::Menu);
+        assert_ne!(g.current_word().word, "BAB");
+    }
+
+    #[test]
+    fn resume_play_switches_to_puzzle_without_resetting_active_puzzle() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        let active = g.current_word().word.clone();
+        g.resume_play();
+        assert_eq!(g.screen, Screen::Puzzle);
+        assert_eq!(g.current_word().word, active);
+    }
+
+    #[test]
+    fn go_to_menu_returns_to_menu_without_disturbing_puzzle() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        g.start_word("AB");
+        let active = g.current_word().word.clone();
+        g.go_to_menu();
+        assert_eq!(g.screen, Screen::Menu);
+        assert_eq!(g.current_word().word, active);
+    }
+
+    #[test]
+    fn reset_progress_wipes_completion_and_returns_to_tier_one() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        for _ in 0..3 {
+            solve_current_word(&mut g);
+            g.advance_to_next();
+        }
+        assert_eq!(g.progress.completed.len(), 3);
+        g.reset_progress();
+        assert!(g.progress.completed.is_empty());
+        assert_eq!(g.progress.tier_unlocked, 1);
+        assert_eq!(g.current_tier, 1);
+        assert_eq!(g.screen, Screen::Menu);
+    }
+
+    #[test]
+    fn is_completed_reflects_progress_completed_list() {
+        let mut g = Game::new(dict(), Progress::default(), Some(42));
+        let first = g.current_word().word.clone();
+        assert!(!g.is_completed(&first));
+        solve_current_word(&mut g);
+        g.advance_to_next();
+        assert!(g.is_completed(&first));
+    }
+
+    #[test]
+    fn words_in_tier_filters_by_tier() {
+        let g = Game::new(dict(), Progress::default(), Some(42));
+        let tier1 = g.words_in_tier(1);
+        assert_eq!(tier1.len(), 6);
+        assert!(tier1.iter().all(|w| w.tier == 1));
+        let tier2 = g.words_in_tier(2);
+        assert_eq!(tier2.len(), 2);
     }
 
     #[test]

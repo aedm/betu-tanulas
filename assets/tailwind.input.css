@@ -191,4 +191,278 @@
   .betu-screen {
     position: relative;
   }
+
+  /* --- Puzzle header (home icon + tiny progress) --- */
+
+  .betu-puzzle-header {
+    position: absolute;
+    top: clamp(8px, 2vh, 16px);
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 clamp(12px, 4vw, 24px);
+    pointer-events: none;
+  }
+
+  .betu-home {
+    pointer-events: auto;
+    width: 48px;
+    height: 48px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 9999px;
+    background: white;
+    border: 1px solid var(--color-tile-border);
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.08);
+    font-size: 26px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .betu-puzzle-progress {
+    pointer-events: none;
+    background: white;
+    border: 1px solid var(--color-tile-border);
+    border-radius: 9999px;
+    padding: 4px 14px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-ink);
+    opacity: 0.7;
+  }
+
+  /* --- Main menu --- */
+
+  .betu-menu {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(20px, 5vh, 40px);
+    padding: clamp(16px, 4vw, 32px);
+    position: relative;
+  }
+
+  .betu-menu-title {
+    font-size: clamp(40px, 9vw, 72px);
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--color-ink);
+    margin: 0;
+    user-select: none;
+    cursor: default;
+  }
+
+  .betu-menu-play {
+    width: 144px;
+    height: 144px;
+    min-width: 96px;
+    min-height: 96px;
+    border-radius: 9999px;
+    background: var(--color-success);
+    border: none;
+    color: white;
+    font-size: 64px;
+    line-height: 1;
+    box-shadow: 0 8px 24px rgba(31, 41, 55, 0.22);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .betu-menu-play:active {
+    transform: scale(0.96);
+  }
+
+  .betu-menu-tiers {
+    display: flex;
+    gap: clamp(12px, 3vw, 24px);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .betu-tier-button {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    min-width: 64px;
+    min-height: 64px;
+    border-radius: 24px;
+    background: white;
+    border: 1px solid var(--color-tile-border);
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.08);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    line-height: 1;
+  }
+
+  .betu-tier-button[data-locked="true"] {
+    opacity: 0.45;
+    filter: grayscale(0.6);
+    cursor: not-allowed;
+  }
+
+  .betu-tier-icon {
+    user-select: none;
+  }
+
+  .betu-tier-lock {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  /* --- Reset modal (parent zone, hidden behind 3 title taps) --- */
+
+  .betu-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(31, 41, 55, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 16px;
+  }
+
+  .betu-modal {
+    background: white;
+    border-radius: 18px;
+    padding: 24px;
+    max-width: 400px;
+    width: 100%;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    align-items: center;
+  }
+
+  .betu-modal-title {
+    font-size: clamp(20px, 5vw, 28px);
+    font-weight: 700;
+    margin: 0;
+    text-align: center;
+  }
+
+  .betu-modal-buttons {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .betu-modal-yes,
+  .betu-modal-no {
+    min-width: 96px;
+    min-height: 48px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 18px;
+  }
+
+  .betu-modal-yes {
+    background: var(--color-warn);
+    color: white;
+  }
+
+  .betu-modal-no {
+    background: var(--color-tile-border);
+    color: var(--color-ink);
+  }
+
+  /* --- Level select --- */
+
+  .betu-level-select {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    padding: clamp(12px, 4vw, 24px);
+    gap: clamp(12px, 3vh, 24px);
+  }
+
+  .betu-header {
+    display: grid;
+    grid-template-columns: 48px 1fr 48px;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .betu-back {
+    width: 48px;
+    height: 48px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 9999px;
+    background: white;
+    border: 1px solid var(--color-tile-border);
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.08);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .betu-header-title {
+    text-align: center;
+    margin: 0;
+    font-size: clamp(20px, 5vw, 28px);
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .betu-header-spacer {
+    width: 48px;
+    height: 48px;
+  }
+
+  .betu-word-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: clamp(12px, 3vw, 20px);
+    align-content: start;
+    justify-items: stretch;
+  }
+
+  .betu-word-tile {
+    aspect-ratio: 1 / 1;
+    border-radius: 18px;
+    background: white;
+    border: 1px solid var(--color-tile-border);
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.08);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(36px, 9vw, 56px);
+    line-height: 1;
+  }
+
+  .betu-word-tile[data-completed="false"] {
+    opacity: 0.6;
+  }
+
+  .betu-word-tile:active {
+    transform: scale(0.96);
+  }
+
+  .betu-word-emoji {
+    user-select: none;
+  }
 }
