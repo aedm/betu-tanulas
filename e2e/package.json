@@ -1,0 +1,19 @@
+{
+  "name": "betu-tanulas-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright e2e tests for betu-tanulas. Runs against the bundled dist/public/ via a Python static server.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "show-report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "typescript": "5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

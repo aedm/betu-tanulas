@@ -184,9 +184,115 @@ jobs:
             --repo "${{ github.repository }}" \
             -F /tmp/diag/comment.md
 
+  e2e:
+    name: E2E (Playwright, mobile viewport)
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up diag dir
+        run: mkdir -p /tmp/diag
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4.1.8
+        with:
+          name: dist
+          path: dist/public
+
+      - uses: actions/setup-node@v4.0.4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright deps
+        working-directory: e2e
+        run: |
+          set -o pipefail
+          npm ci 2>&1 | tee /tmp/diag/npm_ci.log
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4.0.2
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-1.49.1
+
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        working-directory: e2e
+        run: |
+          set -o pipefail
+          npx playwright install --with-deps webkit chromium \
+            2>&1 | tee /tmp/diag/playwright_install.log
+
+      - name: Install Playwright system deps (cache hit path)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        working-directory: e2e
+        run: |
+          set -o pipefail
+          npx playwright install-deps webkit chromium \
+            2>&1 | tee /tmp/diag/playwright_install_deps.log
+
+      - name: Run Playwright tests
+        working-directory: e2e
+        env:
+          CI: "true"
+        run: |
+          set -o pipefail
+          npx playwright test 2>&1 | tee /tmp/diag/playwright.log
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: playwright-traces
+          path: e2e/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Post diagnostics on failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## CI \`e2e\` job failed (commit \`${{ github.sha }}\`)"
+            echo
+            echo "Failed tests + first 50 lines of log:"
+            echo
+            echo '```'
+            grep -E "^\s*[0-9]+\) " /tmp/diag/playwright.log | head -20 || true
+            echo '```'
+            echo
+            for f in /tmp/diag/*.log; do
+              echo "<details><summary>$(basename "$f") — last 50 KB</summary>"
+              echo
+              echo '```'
+              tail -c 50000 "$f"
+              echo '```'
+              echo "</details>"
+              echo
+            done
+          } > /tmp/diag/comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            -F /tmp/diag/comment.md
+
   deploy:
     name: Deploy to Cloudflare Pages
-    needs: bundle
+    needs: [bundle, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
