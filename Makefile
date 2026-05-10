@@ -26,8 +26,10 @@ serve: tw
 
 bundle: tw
 	dx bundle --platform web --release
-	mkdir -p dist/public/audio
+	mkdir -p dist/public/audio dist/public/icons
 	cp -R assets/audio/letter assets/audio/word assets/audio/sfx dist/public/audio/
+	cp assets/icons/*.png dist/public/icons/
+	cp assets/manifest.webmanifest dist/public/manifest.webmanifest
 
 test: tw
 	cargo test --all-targets

@@ -976,3 +976,94 @@ The device-polish list shrinks to:
 - **Verification** that VoiceOver / TalkBack actually read the new
   Hungarian aria-labels with the `lang="hu"` voice (the labels are
   in; the screen-reader check is hardware).
+
+## 24. PWA install — manifest + icons (`betu-11`, code-only slice 4)
+
+A fourth code-only slice of `betu-11` lands the "PWA install banner"
+item from the device-polish list. Adding the kid's app to the home
+screen is the *only* way the user wants the kid to launch it (no
+chrome, no URL bar, no Safari/Chrome icon disguising what it is) — and
+without a manifest + icon set, "Add to Home Screen" produces a fuzzy
+auto-generated thumbnail of whatever was on screen at the time of the
+add. This slice fixes the cosmetics; the install gesture itself is
+hardware.
+
+**`assets/manifest.webmanifest`** ships verbatim to
+`dist/public/manifest.webmanifest` via the bundle pipeline (Makefile +
+CI both `cp` it after `dx bundle`, alongside the audio-cp step).
+Fields:
+
+- `name` + `short_name`: "Betűk" (a single 5-char Hungarian word also
+  serves as the home-screen label — under iOS's ~12-char truncation).
+- `lang: "hu"` + `dir: "ltr"` so screen readers and Chromium pick the
+  right voice / direction in the install prompt.
+- `start_url: "/"` and `scope: "/"` — the entire app is one route.
+- `display: "standalone"` so the launched window has no Safari /
+  Chrome chrome (the whole point of the install).
+- `orientation: "portrait"` because the puzzle layout is phone-first
+  and the safe-area work in §23 is also portrait-tuned.
+- `background_color: "#FBFAF7"` + `theme_color: "#FBFAF7"` — both
+  match `--color-bone` so the iOS launch splash and the Android URL
+  bar are seamless with the app shell.
+- `icons`: 192 × 192 + 512 × 512 PNGs at `/icons/icon-{size}.png`,
+  `purpose: "any"`. The 192 is what Chrome's install prompt
+  thumbnails; the 512 is what Android uses for the splash; iOS uses
+  neither and instead reads `apple-touch-icon` (next item).
+
+**`<link>` tags in `index.html`.** Added inside the same `<head>`
+that the Run 177 slice extended:
+
+- `<link rel="manifest" href="/manifest.webmanifest">` — the required
+  pointer.
+- `<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">`
+  — iOS Safari ignores the manifest's `icons` array for home-screen
+  add and reads this `<link>` instead. 180 × 180 is the iOS
+  recommendation.
+- `<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">`
+  + `<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">`
+  — browser-tab favicon at 32, plus a 192 for higher-DPI tab strips.
+
+**Icon design.** A single uppercase **B** for "Betűk" on the bone
+background, with a thin tile-border square framing it — visually
+matches the in-app letter tiles at a glance. The letterform sits well
+inside both Android's circular mask and iOS's rounded-square (~80%
+safe zone), so a future maskable variant is a render-time tweak, not
+a redesign. No accents, no digraphs (matches the v1 dictionary's own
+constraint, so the icon "looks like" the corpus the kid will see).
+
+**Generator: `tools/gen_icons.py`.** Mirrors the
+`tools/gen_audio.py` pattern from `betu-09`: a Python+Pillow script
+that renders the 1024 px base and downsamples to 512 / 192 / 180 / 32.
+Idempotent and deterministic; PNGs are committed (so CI doesn't need
+Pillow). Falls back from Arial Bold → DejaVu Bold → Liberation Sans
+Bold → Pillow default; warns on the bitmap fallback.
+
+**Tests.** `tests/index_html_template.rs` gains one new test that
+asserts all four `<link>` lines are present in the source template.
+`tests/manifest_template.rs` (5 tests) parses `manifest.webmanifest`
+via `serde_json` and guards required keys (`name`, `short_name`,
+`start_url`, `display`, `icons`), the locale + palette match
+(`lang="hu"`, `theme_color`/`background_color` = `#FBFAF7`), the
+declared icon size matrix (`192x192` + `512x512`), and that all four
+referenced PNGs exist on disk with valid PNG magic. The CI bundle
+job's `Verify bundle output` step is also extended to fail loudly if
+`manifest.webmanifest` or any of the three load-bearing icon PNGs
+fail to land in `dist/public/`.
+
+### What's still deferred to a real device after this slice
+
+The device-polish list shrinks again — *install* itself is hardware:
+
+- iOS muted-switch, double-play, echo on speakers + AirPods.
+- Tap responsiveness verification.
+- Outdoor/sunlight contrast.
+- **Verification** that the safe-area inset CSS lands cleanly on a
+  notched phone.
+- Battery / overheat under sustained play.
+- Service worker decision (still `betu-12`).
+- VoiceOver / TalkBack pronunciation pass with the `lang="hu"`
+  voice.
+- **Verification** that "Add to Home Screen" on iOS Safari and
+  Chrome's install prompt on Android both render the new icon
+  cleanly, and that the launched window is full-screen (no chrome).
+  The manifest + icon files exist; the install UX is hardware.
