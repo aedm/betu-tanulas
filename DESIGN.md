@@ -818,6 +818,16 @@ doesn't double-trigger.
   navigating to the menu unmounts the screen and `clear_interval`
   fires from the cleanup callback. No leaked timers, no audio plays
   while the kid is on the menu.
+- **Page Visibility suppression.** Each tick consults
+  `document.hidden` (Page Visibility API) via a small wasm helper
+  and short-circuits when the tab is backgrounded. The kid isn't
+  watching anyway, and on iOS WebKit an `HTMLAudioElement.play()`
+  from a hidden tab can queue and play later when visibility
+  returns — startling for a parent pulling the phone out of a
+  pocket. The model exposes `IdleReplay::should_fire_replay(now,
+  threshold, hidden)` so the suppression logic is unit-testable on
+  native (no DOM stub needed); the wasm wiring is one
+  `web_sys::Document::hidden()` read.
 
 ### E2E read-channels
 
@@ -833,12 +843,17 @@ the `python3 -m http.server` access lines) to verify both behaviors.
 
 ### Tests
 
-- 6 unit tests in `src/idle.rs` cover boundary, reset, replay rearm,
-  slot-tap counter independence, and a multi-replay sequence.
+- 8 unit tests in `src/idle.rs` cover boundary, reset, replay rearm,
+  slot-tap counter independence, multi-replay sequence, plus the two
+  visibility-suppression cases (hidden never fires; visibility-only
+  predicate doesn't mutate state).
 - 1 SSR test in `tests/puzzle_screen_render.rs` asserts both new
   data attributes start at `0`.
-- 3 e2e specs:
+- 4 e2e specs:
   - `idle-replay.spec.ts` — wait 12 s, assert counter ≥ 1.
+  - `idle-replay.spec.ts` — spoof `document.hidden = true` via
+    `Object.defineProperty` + `visibilitychange`, wait 12 s, assert
+    counter still 0 (visibility suppression).
   - `idle-replay.spec.ts` — pointerdown at +6 s + pointercancel,
     wait another 6 s (12 s total but only 6 s since input), assert
     counter still 0 (clock reset works).

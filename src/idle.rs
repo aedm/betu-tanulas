@@ -35,6 +35,20 @@ impl IdleReplay {
         now_ms - self.last_input_ms >= threshold_ms
     }
 
+    /// Whether the timer should actually fire a replay right now.
+    /// `hidden` reflects the Page Visibility API: when the tab is
+    /// backgrounded the kid isn't watching, and on iOS WebKit the
+    /// audio call would queue and play minutes later when the parent
+    /// pulls the phone out — startling, not helpful.
+    pub fn should_fire_replay(
+        &self,
+        now_ms: f64,
+        threshold_ms: f64,
+        hidden: bool,
+    ) -> bool {
+        !hidden && self.should_replay(now_ms, threshold_ms)
+    }
+
     pub fn note_replay(&mut self, now_ms: f64) {
         self.last_input_ms = now_ms;
         self.idle_replays = self.idle_replays.saturating_add(1);
@@ -97,6 +111,31 @@ mod tests {
         // the kid doesn't get a duplicate idle replay seconds later.
         assert!(!s.should_replay(11_000.0, 10_000.0));
         assert!(s.should_replay(12_000.0, 10_000.0));
+    }
+
+    #[test]
+    fn should_fire_replay_suppressed_when_hidden() {
+        let s = IdleReplay::new(0.0);
+        // Past the threshold, but the tab is hidden — never fire.
+        assert!(!s.should_fire_replay(15_000.0, 10_000.0, true));
+        assert!(!s.should_fire_replay(60_000.0, 10_000.0, true));
+        // Visible: matches should_replay exactly.
+        assert!(!s.should_fire_replay(9_999.0, 10_000.0, false));
+        assert!(s.should_fire_replay(10_000.0, 10_000.0, false));
+        assert!(s.should_fire_replay(15_000.0, 10_000.0, false));
+    }
+
+    #[test]
+    fn should_fire_replay_visibility_does_not_advance_clock() {
+        // Hiding the tab while idle accumulates no state on the model
+        // — the clock still tracks last_input_ms verbatim. A future
+        // un-hide call should observe the same values.
+        let s = IdleReplay::new(0.0);
+        assert!(!s.should_fire_replay(50_000.0, 10_000.0, true));
+        assert!(s.should_fire_replay(50_000.0, 10_000.0, false));
+        // No mutation happened — last_input_ms unchanged.
+        assert_eq!(s.last_input_ms, 0.0);
+        assert_eq!(s.idle_replays, 0);
     }
 
     #[test]
