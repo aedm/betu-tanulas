@@ -38,8 +38,19 @@ pub enum DropOutcome {
     SprungBack {
         tile_index: usize,
     },
+    /// Pointer never left the tile between pickup and release — a tap,
+    /// not a drag. Tile silently returns to Idle; `wrong_drops` is not
+    /// incremented. Lets curious "what does this say?" taps not punish.
+    Tapped {
+        tile_index: usize,
+    },
     Ignored,
 }
+
+/// Below this many CSS px of pointer travel from the tile's origin, a
+/// release counts as a tap rather than a drag. Above typical finger
+/// jitter so deliberate drags still register.
+pub const TAP_THRESHOLD_PX: f64 = 8.0;
 
 impl Puzzle {
     pub fn new(word: Word, seed: Option<u64>) -> Self {
@@ -134,9 +145,24 @@ impl Puzzle {
         let Some(tile_index) = self.dragging_with(pointer_id) else {
             return DropOutcome::Ignored;
         };
-        let TileState::Dragging { pointer, .. } = self.tiles[tile_index].state else {
+        let TileState::Dragging {
+            pointer,
+            origin_center,
+            ..
+        } = self.tiles[tile_index].state
+        else {
             return DropOutcome::Ignored;
         };
+
+        // Tap detection: pointer barely moved from where the user touched
+        // down. Treat as a tap, not a drag attempt — silent return to
+        // Idle, no wrong-drop penalty.
+        let tdx = pointer.0 - origin_center.0;
+        let tdy = pointer.1 - origin_center.1;
+        if tdx * tdx + tdy * tdy < TAP_THRESHOLD_PX * TAP_THRESHOLD_PX {
+            self.tiles[tile_index].state = TileState::Idle;
+            return DropOutcome::Tapped { tile_index };
+        }
 
         let nearest = nearest_slot_within(pointer, slot_centers, snap_radius);
         let snap_target = nearest.and_then(|slot_index| {
@@ -466,7 +492,9 @@ mod tests {
         let a = idx_of(&p, 'A', 0);
         // slot centers for "MA": index 0 is 'M', index 1 is 'A'.
         let centers = vec![(0.0, 0.0), (100.0, 0.0)];
-        p.pickup(m, 1, (0.0, 0.0), (0.0, 0.0));
+        // Origin is offset from the slot so the pointer travels far
+        // enough to register as a drag (above TAP_THRESHOLD_PX).
+        p.pickup(m, 1, (0.0, 0.0), (50.0, 50.0));
         assert_eq!(
             p.release(1, &centers, 10.0),
             DropOutcome::Snapped {
@@ -475,7 +503,7 @@ mod tests {
             }
         );
         assert!(!p.is_complete());
-        p.pickup(a, 2, (100.0, 0.0), (0.0, 0.0));
+        p.pickup(a, 2, (100.0, 0.0), (50.0, 50.0));
         assert_eq!(
             p.release(2, &centers, 10.0),
             DropOutcome::Snapped {
@@ -484,6 +512,70 @@ mod tests {
             }
         );
         assert!(p.is_complete());
+    }
+
+    #[test]
+    fn release_at_origin_is_a_tap_not_a_wrong_drop() {
+        // User report 2026-05-10: tapping a letter on the kid's phone
+        // briefly highlighted it then dropped back to Idle, which felt
+        // like the tile "disappeared" and counted unfairly as a wrong
+        // drop. The fix is to detect a tap (pointer never left origin)
+        // and emit `Tapped` instead of `SprungBack`.
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        // Pointer == origin: the user touched and lifted without moving.
+        p.pickup(l, 1, (100.0, 200.0), (100.0, 200.0));
+        let outcome = p.release(1, &slot_centers_alma(), 40.0);
+        assert_eq!(outcome, DropOutcome::Tapped { tile_index: l });
+        assert!(matches!(p.tiles[l].state, TileState::Idle));
+        assert_eq!(p.wrong_drops, 0, "tap must not count as a wrong drop");
+        assert!(p.slots.iter().all(|s| s.is_none()));
+    }
+
+    #[test]
+    fn release_within_tap_threshold_is_a_tap() {
+        // Tiny finger jitter (within TAP_THRESHOLD_PX) still counts as
+        // a tap. Threshold is 8 px; (5, 5) → 7.07 px from origin.
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        p.pickup(l, 1, (5.0, 5.0), (0.0, 0.0));
+        let outcome = p.release(1, &slot_centers_alma(), 40.0);
+        assert_eq!(outcome, DropOutcome::Tapped { tile_index: l });
+        assert_eq!(p.wrong_drops, 0);
+    }
+
+    #[test]
+    fn release_just_past_tap_threshold_is_a_drag() {
+        // 9 px on the x-axis is over the 8 px threshold — a deliberate
+        // drag, not a tap. With no slot in range, springs back as before.
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        p.pickup(l, 1, (9.0, 0.0), (0.0, 0.0));
+        let outcome = p.release(1, &slot_centers_alma(), 40.0);
+        assert_eq!(outcome, DropOutcome::SprungBack { tile_index: l });
+        assert_eq!(p.wrong_drops, 1);
+    }
+
+    #[test]
+    fn drag_then_return_to_origin_is_still_a_drag_not_a_tap() {
+        // Once the pointer has left origin, the user has expressed drag
+        // intent. If they happen to release back near where they started,
+        // the model uses the *current* pointer position — if that's
+        // within the threshold of origin, it's a tap; if not, it's a
+        // drag. This test pins down the boundary at the release moment.
+        let mut p = alma();
+        let l = idx_of(&p, 'L', 0);
+        p.pickup(l, 1, (0.0, 0.0), (0.0, 0.0));
+        // Drag well away from origin.
+        assert!(p.pointer_move(1, (100.0, 100.0)));
+        // Then drift back to origin before lifting.
+        assert!(p.pointer_move(1, (0.0, 0.0)));
+        let outcome = p.release(1, &slot_centers_alma(), 40.0);
+        // Released at origin → tap (no penalty), even though there was
+        // intervening movement. This mirrors how a user who hesitates
+        // and pulls back gets a free retry.
+        assert_eq!(outcome, DropOutcome::Tapped { tile_index: l });
+        assert_eq!(p.wrong_drops, 0);
     }
 
     #[test]

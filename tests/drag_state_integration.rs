@@ -136,6 +136,70 @@ fn second_pointer_does_not_disturb_active_drag() {
 }
 
 #[test]
+fn tapping_a_tile_does_not_disappear_or_count_as_wrong_drop() {
+    // Regression for the user's 2026-05-10 device-test report:
+    // "Ha rányomok egy betűre, azonnal eltűnik, nem tudom arrébb húzni."
+    // A tap (pointerdown + pointerup at the same client point, no
+    // pointermove) used to flip the tile Dragging → Idle and bump
+    // wrong_drops, which felt punitive. The model now distinguishes
+    // a tap from a drag and silently returns the tile to Idle.
+    let mut p = Puzzle::new(word("CICA", "🐱", 1), Some(7));
+    let centers = slot_centers_horizontal(4);
+    let snap = 40.0;
+
+    let tile_index = first_tile_with_letter(&p, 'C', 0);
+    let tile_origin = (160.0, 600.0); // tile center, far from any slot
+
+    // Tap: pickup at the tile center, release at the tile center,
+    // no pointermove in between.
+    assert!(p.pickup(tile_index, 1, tile_origin, tile_origin));
+    let outcome = p.release(1, &centers, snap);
+
+    assert_eq!(outcome, DropOutcome::Tapped { tile_index });
+    assert!(matches!(p.tiles[tile_index].state, TileState::Idle));
+    assert_eq!(
+        p.wrong_drops, 0,
+        "a static tap must not be counted as a wrong drop"
+    );
+    assert!(
+        p.slots.iter().all(|s| s.is_none()),
+        "no slot should have been filled by a tap"
+    );
+}
+
+#[test]
+fn tap_then_real_drag_to_correct_slot_still_works() {
+    // The tap path must not interfere with the normal drag path on
+    // subsequent attempts. After a tap, the user can still pick up the
+    // same tile and drag it to its slot.
+    let mut p = Puzzle::new(word("MA", "🤲", 1), Some(7));
+    let centers = vec![(100.0, 100.0), (200.0, 100.0)];
+    let snap = 40.0;
+    let m = first_tile_with_letter(&p, 'M', 0);
+
+    // 1) Tap: same point pickup + release.
+    assert!(p.pickup(m, 1, (50.0, 400.0), (50.0, 400.0)));
+    assert_eq!(
+        p.release(1, &centers, snap),
+        DropOutcome::Tapped { tile_index: m }
+    );
+    assert!(matches!(p.tiles[m].state, TileState::Idle));
+    assert_eq!(p.wrong_drops, 0);
+
+    // 2) Real drag to slot 0 (M's correct slot).
+    assert!(p.pickup(m, 2, (50.0, 400.0), (50.0, 400.0)));
+    p.pointer_move(2, (100.0, 100.0));
+    assert_eq!(
+        p.release(2, &centers, snap),
+        DropOutcome::Snapped {
+            tile_index: m,
+            slot_index: 0,
+        }
+    );
+    assert_eq!(p.slots[0], Some(m));
+}
+
+#[test]
 fn pointer_cancel_returns_tile_home_without_penalty() {
     let mut p = Puzzle::new(word("ALMA", "🍎", 2), Some(7));
     let l_tile = first_tile_with_letter(&p, 'L', 0);
