@@ -396,13 +396,25 @@ fn capture_pointer_for_event(evt: &Event<PointerData>, pointer_id: i32) {
     let Some(we) = evt.try_as_web_event() else {
         return;
     };
-    let Some(target) = we.current_target() else {
+    // `current_target` under Dioxus 0.7's bubbling-event delegation is
+    // the mount root, not the tile. Capturing the pointer on the root
+    // re-targets all subsequent pointer events to the root itself —
+    // they no longer dispatch through `.betu-screen`'s handlers, so
+    // `pointermove` updates stop arriving and the tile freezes after
+    // the first render. Walk up to `.betu-tile` so capture lives on
+    // the element the user is actually dragging; events then bubble
+    // back through `.betu-screen` as expected. See
+    // `dioxus-pointer-events-recipe.md` (gotcha §).
+    let Some(target) = we.target() else {
         return;
     };
     let Ok(el) = target.dyn_into::<web_sys::Element>() else {
         return;
     };
-    let _ = el.set_pointer_capture(pointer_id);
+    let Ok(Some(tile)) = el.closest(".betu-tile") else {
+        return;
+    };
+    let _ = tile.set_pointer_capture(pointer_id);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
