@@ -187,7 +187,16 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
                                      transition: none; touch-action: none;"
                                 )
                             }
-                            _ => "touch-action: none;".to_string(),
+                            // Mirror every property the Dragging branch sets.
+                            // Dioxus 0.7's style diff merges declarations
+                            // instead of replacing them, so omissions leak
+                            // the previous drag's transform onto a reused
+                            // tile DOM node (e.g. after `advance_to_next`).
+                            _ => "transform: none; z-index: auto; \
+                                  transition: transform 250ms ease-out, \
+                                  box-shadow 200ms ease-out; \
+                                  touch-action: none;"
+                                .to_string(),
                         };
                         let tile_label = format!("Betű {}", tile.letter);
                         rsx! {
@@ -361,9 +370,14 @@ fn pickup_origin_center(evt: &Event<PointerData>) -> Option<(f64, f64)> {
     use dioxus::web::WebEventExt;
     use wasm_bindgen::JsCast;
     let we = evt.try_as_web_event()?;
-    let target = we.current_target()?;
+    // `current_target` is the root element under Dioxus 0.7's bubbling
+    // event delegation — not the tile. `target` is the deepest element
+    // where the pointer landed; walk up to the nearest `.betu-tile`
+    // ancestor for the tile's layout rect.
+    let target = we.target()?;
     let el = target.dyn_into::<web_sys::Element>().ok()?;
-    let rect = el.get_bounding_client_rect();
+    let tile = el.closest(".betu-tile").ok().flatten()?;
+    let rect = tile.get_bounding_client_rect();
     Some((
         rect.left() + rect.width() / 2.0,
         rect.top() + rect.height() / 2.0,
