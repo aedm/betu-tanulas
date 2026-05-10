@@ -312,8 +312,9 @@ fn install_idle_replay_timer(game: Signal<Game>, mut idle: Signal<IdleReplay>) {
         move || {
             let cb = Closure::wrap(Box::new(move || {
                 let now = now_ms();
+                let hidden = document_hidden();
                 let snapshot = *idle.peek();
-                if !snapshot.should_replay(now, IDLE_REPLAY_THRESHOLD_MS) {
+                if !snapshot.should_fire_replay(now, IDLE_REPLAY_THRESHOLD_MS, hidden) {
                     return;
                 }
                 let g = game.peek();
@@ -342,6 +343,14 @@ fn install_idle_replay_timer(game: Signal<Game>, mut idle: Signal<IdleReplay>) {
             }
         },
     );
+}
+
+#[cfg(target_arch = "wasm32")]
+fn document_hidden() -> bool {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .map(|d| d.hidden())
+        .unwrap_or(false)
 }
 
 #[cfg(not(target_arch = "wasm32"))]

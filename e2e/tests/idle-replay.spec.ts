@@ -35,6 +35,42 @@ test("after ~10 s of no input the word audio replays and the counter ticks", asy
   expect(replays).toBeGreaterThanOrEqual(1);
 });
 
+test("idle replay is suppressed while the tab is hidden", async ({ page }) => {
+  // When the kid's phone goes to sleep or the parent switches apps,
+  // `document.hidden` flips to true. On iOS WebKit, an HTMLAudioElement
+  // .play() call from a hidden tab can queue and play minutes later
+  // when visibility returns — startling, not helpful. The wasm timer
+  // checks document.hidden() and short-circuits when hidden.
+  test.setTimeout(30_000);
+  await page.goto("/");
+  await waitForApp(page);
+  await seedProgress(page, null);
+
+  const screen = await tapPlay(page);
+  await expect(screen).toHaveAttribute("data-idle-replays", "0");
+
+  // Spoof the Page Visibility API: override `document.hidden` to true
+  // and dispatch the visibilitychange event. The wasm callback reads
+  // `document.hidden()` once per tick, so subsequent ticks see hidden.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => true,
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  // Wait the same 12 s the visible-replay test waits — long enough for
+  // multiple polls past the 10 s threshold.
+  await page.waitForTimeout(IDLE_WAIT_MS);
+
+  await expect(screen).toHaveAttribute("data-idle-replays", "0");
+});
+
 test("a pointer-down on a tile resets the idle clock", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/");
