@@ -476,3 +476,89 @@ Recorded by `betu-04` so future runs don't re-decide silently:
 - **Audio + chime** still deferred to `betu-09` per parent plan.
   The success chime is referenced in §7 but not wired up in
   `betu-07`; today the win flow is silent.
+
+## 19. Menus + navigation + in-game progress (`betu-08`)
+
+The kid drives navigation entirely with icons. Three flat screens —
+`Screen::{Menu, LevelSelect, Puzzle}` — and the kid is never deeper
+than two taps from the menu.
+
+- **`Screen` enum** in `src/screen.rs`. Game owns `screen: Screen`;
+  `App` matches on it and renders `MainMenu`, `LevelSelect`, or
+  `PuzzleScreen` accordingly. State lives in the existing single
+  `Signal<Game>` rooted in `App` — no parallel router state.
+- **`MainMenu`** (`src/menu.rs`):
+  - Big play button (▶️) → `Game::resume_play()` switches to
+    `Screen::Puzzle` without disturbing the active puzzle.
+  - One tier button per tier in the dictionary (3 today). The
+    button's icon is the tier's first-word emoji per §9. Locked
+    tiers carry `data-locked="true"` + 🔒 + `disabled` attribute
+    + 0.45 opacity + grayscale, so the kid sees them but cannot
+    activate.
+  - Hidden parent zone: triple-tap on the title opens a confirm
+    dialog with `Igen`/`Mégse` buttons. Confirm calls
+    `Game::reset_progress()` + `progress::save()`. Triple-tap +
+    confirm is rare-enough-by-design to be child-safe; replaces
+    the long-press-on-home-icon idea from §9 because long-press
+    is harder to implement reliably across iOS/Android.
+- **`LevelSelect`** (`src/level_select.rs`):
+  - Header: ⬅️ back button → `Game::go_to_menu()`; tier label;
+    a spacer to balance the grid.
+  - Grid of word tiles, one per word in `Game::words_in_tier(tier)`.
+    Completed words show their emoji; never-completed words show ❓
+    so the kid keeps a sense of mystery (DESIGN §9 / betu-08 spec).
+  - Tap → `Game::start_word(word)` builds a fresh `Puzzle` for
+    that word, populates the queue with the tier's other words
+    (so post-win Next still rotates correctly), and switches to
+    `Screen::Puzzle`.
+- **`PuzzleScreen` additions** (`src/puzzle_screen.rs`):
+  - Top-left 🏠 home icon → `Game::go_to_menu()`. Going home does
+    *not* reset the puzzle — the kid can resume.
+  - Top-right tiny progress chip: `<tier> · <done>/<total>` for
+    the current tier. `done` is the count of completed words in
+    that tier; `total` is dictionary size. Pill-shaped, dimmed —
+    "don't make it a billboard" (betu-08 spec).
+- **`Game` API** (`src/game.rs`):
+  - `enter_tier(tier)` — no-op when locked or out of range; sets
+    `Screen::LevelSelect { tier }`.
+  - `start_word(&str)` — looks up word; if its tier is locked,
+    no-op; otherwise rebuilds tier queue (excluding the chosen
+    word), creates a fresh `Puzzle`, switches to `Screen::Puzzle`.
+  - `resume_play()` — switches to `Screen::Puzzle` (puzzle
+    survives re-entries to menu).
+  - `go_to_menu()` — switches to `Screen::Menu`.
+  - `reset_progress()` — wipes `Progress`, rewinds to a tier-1
+    puzzle, returns to `Screen::Menu`. Caller persists.
+  - `words_in_tier(tier) -> Vec<&Word>`, `is_completed(&str) -> bool`
+    are read-only helpers used by both UI and tests.
+- **Localization shim** (`src/i18n.rs`): tiny `translate(&'static str)
+  -> &'static str` matched against literal keys (e.g. `"menu.play"`,
+  `"puzzle.next"`). Macro `t!("…")` enforces literal keys at the
+  call site so a typo is a compile error rather than a fallback
+  string at runtime. v1 is Hungarian-only; future locales drop in
+  by extending the match arms — no call-site changes.
+- **Tests added (33 new, 87 total)**:
+  - 11 unit tests in `game.rs` covering `enter_tier` (locked/zero/
+    happy-path), `start_word` (locked-tier refusal), `resume_play`,
+    `go_to_menu`, `reset_progress`, `is_completed`, `words_in_tier`,
+    and the new `Screen::Menu` default.
+  - 3 unit tests in `i18n.rs` (known/unknown keys + macro).
+  - `tests/menu_render.rs` (5 SSR tests) — play button + 3 tier
+    buttons render, locked-tier `data-locked="true"` count, title
+    localized, reset dialog hidden.
+  - `tests/level_select_render.rs` (5 SSR tests) — one tile per
+    tier word; uncompleted = ❓; completed = real emoji +
+    `data-completed="true"`; back button localized; tier-2 grid
+    when unlocked.
+  - `tests/navigation_flow.rs` (8 integration tests) — Menu →
+    LevelSelect → Puzzle → Menu state machine plus reset path
+    against the real dictionary.
+  - 1 SSR test added to `puzzle_screen_render.rs` for the in-game
+    home icon + progress chip.
+- **What's deferred to later subtasks:**
+  - Audio cues for Play/locked-tier-tap remain in `betu-09`.
+  - Real-device feel (long-press timings, tap-target tuning) in
+    `betu-11`.
+  - The original §9 "long-press parent menu on home icon" is
+    *replaced* by the title triple-tap in v1; revisit if user
+    objects.

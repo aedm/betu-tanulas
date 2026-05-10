@@ -85,6 +85,29 @@ fn renders_for_a_5_letter_word_without_panicking() {
 }
 
 #[test]
+fn renders_in_game_home_icon_and_progress_indicator() {
+    let alma = load_words()
+        .into_iter()
+        .find(|w| w.word == "ALMA")
+        .expect("ALMA must be in words.json");
+    let html = render_for(alma);
+    assert!(
+        html.contains(r#"data-testid="puzzle-home""#),
+        "home icon must be present on puzzle screen; got {html}"
+    );
+    assert!(
+        html.contains(r#"data-testid="puzzle-progress""#),
+        "progress indicator must be present on puzzle screen; got {html}"
+    );
+    // The harness builds a single-word dictionary, so the indicator
+    // shows `<tier> · <done>/<total>` = `2 · 0/1`.
+    assert!(
+        html.contains("0/1"),
+        "progress indicator should show 0/1 in single-word harness; got {html}"
+    );
+}
+
+#[test]
 fn unsolved_screen_does_not_render_win_overlay_or_next_button() {
     let alma = load_words()
         .into_iter()

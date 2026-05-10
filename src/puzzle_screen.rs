@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::game::Game;
 use crate::progress;
 use crate::puzzle::TileState;
+use crate::t;
 
 const SNAP_RADIUS_PX: f64 = 40.0;
 
@@ -14,6 +15,13 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
     let won = g.is_won();
     let word = p.word.word.clone();
     let emoji = p.word.emoji.clone();
+    let current_tier = g.current_tier;
+    let total_in_tier = g.words.iter().filter(|w| w.tier == current_tier).count();
+    let done_in_tier = g
+        .words
+        .iter()
+        .filter(|w| w.tier == current_tier && g.is_completed(&w.word))
+        .count();
 
     rsx! {
         section {
@@ -54,6 +62,25 @@ pub fn PuzzleScreen(game: Signal<Game>) -> Element {
             onpointercancel: move |evt| {
                 game.write().current_puzzle.cancel(evt.pointer_id());
             },
+            div {
+                class: "betu-puzzle-header",
+                button {
+                    class: "betu-home",
+                    r#type: "button",
+                    aria_label: t!("puzzle.home"),
+                    "data-testid": "puzzle-home",
+                    onclick: move |_| {
+                        game.write().go_to_menu();
+                    },
+                    "🏠"
+                }
+                span {
+                    class: "betu-puzzle-progress",
+                    "data-testid": "puzzle-progress",
+                    aria_label: t!("puzzle.progress"),
+                    "{current_tier} · {done_in_tier}/{total_in_tier}"
+                }
+            }
             div {
                 class: "betu-emoji",
                 role: "img",
@@ -173,7 +200,7 @@ fn WinOverlay(emoji: String, game: Signal<Game>) -> Element {
         button {
             class: "betu-next",
             r#type: "button",
-            aria_label: "Következő",
+            aria_label: t!("puzzle.next"),
             "data-testid": "betu-next",
             onclick: move |_| {
                 {
